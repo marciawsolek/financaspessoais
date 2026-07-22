@@ -287,16 +287,18 @@
 
 <!-- ===================== LOGIN GATE (Supabase Auth real) ===================== -->
 <div id="gate">
-  <div class="gate-card">
+  <form class="gate-card" id="gateForm" onsubmit="doLogin(event)">
     <div class="gate-mark">₿</div>
     <h1>Painel de Investimentos</h1>
     <p>Acesso restrito</p>
-    <input type="email" placeholder="E-mail" id="gateEmail">
-    <input type="password" placeholder="Senha" id="gatePass">
-    <button onclick="doLogin()" id="loginBtn">Entrar</button>
+    <input type="email" placeholder="E-mail" id="gateEmail" name="email"
+           autocomplete="username" autocapitalize="none" autocorrect="off" inputmode="email">
+    <input type="password" placeholder="Senha" id="gatePass" name="password"
+           autocomplete="current-password">
+    <button type="submit" id="loginBtn">Entrar</button>
     <div class="gate-error" id="gateError" style="display:none;"></div>
-    <div class="gate-note">Login real via Supabase Auth — use o e-mail e senha cadastrados no projeto.</div>
-  </div>
+    <div class="gate-note">Entre com o e-mail e senha cadastrados. No celular, salve a senha no Chaveiro para entrar depois com Face&nbsp;ID.</div>
+  </form>
 </div>
 
 <!-- ===================== DASHBOARD ===================== -->
@@ -421,7 +423,8 @@ function toggleTheme() {
 }
 
 /* ---------------- Auth (Supabase Auth real) ---------------- */
-async function doLogin() {
+async function doLogin(event) {
+  if (event) event.preventDefault(); // não recarrega a página ao enviar o formulário
   const email = document.getElementById('gateEmail').value.trim();
   const password = document.getElementById('gatePass').value;
   const btn = document.getElementById('loginBtn');
