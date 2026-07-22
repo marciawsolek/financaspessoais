@@ -281,6 +281,45 @@
     border-radius: 6px; white-space: nowrap; display:none; pointer-events:none; z-index: 5;
   }
   .div-bar-col:hover .div-bar-tooltip { display: block; }
+
+  /* ---------- Modal de operações ---------- */
+  .modal-overlay {
+    display: none; position: fixed; inset: 0; z-index: 100;
+    background: rgba(11,11,11,0.45); backdrop-filter: blur(2px);
+    align-items: flex-start; justify-content: center; padding: 40px 16px;
+    overflow-y: auto;
+  }
+  .modal-overlay.open { display: flex; }
+  .modal-card {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 16px;
+    width: 100%; max-width: 640px; padding: 22px;
+    box-shadow: 0 8px 40px rgba(11,11,11,0.18);
+  }
+  .modal-head { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; margin-bottom:18px; }
+  .modal-head h2 { font-size: 16px; font-weight: 600; margin: 0; }
+  .modal-sub { font-size: 12.5px; color: var(--text-secondary); margin-top: 4px; }
+  .ops-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
+  @media (max-width: 560px) { .ops-grid { grid-template-columns: 1fr; } }
+  .ops-grid label { display:flex; flex-direction:column; gap:5px; font-size: 12px; color: var(--text-secondary); }
+  .ops-grid input, .ops-grid select {
+    padding: 9px 11px; border-radius: 9px; border: 1px solid var(--border);
+    background: var(--page); color: var(--text-primary); font-size: 13.5px; width: 100%;
+  }
+  .ops-submit { display:flex; align-items:flex-end; }
+  .btn-primary {
+    width: 100%; padding: 10px 14px; border-radius: 9px; border: none;
+    background: var(--text-primary); color: var(--surface); font-size: 13.5px; font-weight: 600; cursor: pointer;
+  }
+  .btn-primary:disabled { opacity: 0.6; cursor: default; }
+  .ops-erro { font-size: 12.5px; color: var(--status-critical); margin-top: 10px; }
+  .ops-lista-wrap { margin-top: 22px; border-top: 1px solid var(--gridline); padding-top: 16px; }
+  .ops-lista-titulo { font-size: 12px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.03em; margin-bottom: 10px; }
+  .op-row { display:flex; align-items:center; justify-content:space-between; gap:10px; padding: 9px 0; border-bottom: 1px solid var(--gridline); font-size: 13px; }
+  .op-row:last-child { border-bottom: none; }
+  .op-tag { font-size: 10.5px; font-weight: 600; padding: 2px 7px; border-radius: 5px; }
+  .op-tag.compra { color: var(--good); background: color-mix(in srgb, var(--good) 12%, transparent); }
+  .op-tag.venda { color: var(--status-critical); background: color-mix(in srgb, var(--status-critical) 12%, transparent); }
+  .op-vazio { font-size: 13px; color: var(--text-muted); }
 </style>
 </head>
 <body>
@@ -408,6 +447,51 @@
   </footer>
 </div>
 
+<!-- ===================== MODAL DE OPERAÇÕES (compra/venda) ===================== -->
+<div id="opsOverlay" class="modal-overlay" onclick="if(event.target===this) fecharOperacoes()">
+  <div class="modal-card">
+    <div class="modal-head">
+      <div>
+        <h2 id="opsTitulo">Operações</h2>
+        <div class="modal-sub" id="opsPosicao"></div>
+      </div>
+      <button class="row-action" onclick="fecharOperacoes()">Fechar</button>
+    </div>
+
+    <form id="opsForm" onsubmit="salvarOperacao(event)">
+      <div class="ops-grid">
+        <label>Tipo
+          <select id="opTipo" required>
+            <option value="compra">Compra</option>
+            <option value="venda">Venda</option>
+          </select>
+        </label>
+        <label>Data
+          <input type="date" id="opData" required>
+        </label>
+        <label>Quantidade
+          <input type="number" id="opQtd" step="any" min="0.00000001" placeholder="0" required>
+        </label>
+        <label id="opPrecoLabel">Preço unitário
+          <input type="number" id="opPreco" step="any" min="0" placeholder="0,00" required>
+        </label>
+        <label>Taxas (opcional)
+          <input type="number" id="opTaxas" step="any" min="0" placeholder="0,00">
+        </label>
+        <div class="ops-submit">
+          <button type="submit" class="btn-primary" id="opSalvarBtn">Adicionar</button>
+        </div>
+      </div>
+      <div class="ops-erro" id="opsErro" style="display:none;"></div>
+    </form>
+
+    <div class="ops-lista-wrap">
+      <div class="ops-lista-titulo">Operações lançadas</div>
+      <div id="opsLista"></div>
+    </div>
+  </div>
+</div>
+
 <script>
 /* ---------------- Supabase client ---------------- */
 const SUPABASE_URL = 'https://hqkdmswodfafvkoscesk.supabase.co';
@@ -480,33 +564,83 @@ function fmtDate(iso) {
   return `${d}/${m}/${y}`;
 }
 
+/* ---------------- Operações: posição inicial + compras/vendas ---------------- */
+// Recalcula quantidade e preço médio aplicando as operações sobre a posição
+// inicial (a que veio da planilha). Regra da média ponderada, igual à da Receita:
+//  - COMPRA: soma ao custo total e à quantidade -> o preço médio muda
+//  - VENDA:  reduz a quantidade pelo preço médio atual -> o PM não muda,
+//            e a diferença entre o preço de venda e o PM vira lucro/prejuízo realizado
+function aplicarOperacoes(qtdBase, custoBase, ops) {
+  let qtd = Number(qtdBase) || 0;
+  let custo = Number(custoBase) || 0;
+  let realizado = 0;
+  const ordenadas = [...(ops || [])].sort((a, b) => String(a.data).localeCompare(String(b.data)));
+  for (const op of ordenadas) {
+    const q = Number(op.quantidade) || 0;
+    const p = Number(op.preco_unitario) || 0;
+    const t = Number(op.taxas) || 0;
+    if (op.tipo === 'compra') {
+      custo += q * p + t;
+      qtd += q;
+    } else {
+      const pmAtual = qtd > 0 ? custo / qtd : 0;
+      const qVenda = Math.min(q, qtd); // não deixa vender mais do que tem
+      realizado += (qVenda * p - t) - (qVenda * pmAtual);
+      custo -= qVenda * pmAtual;
+      qtd -= qVenda;
+    }
+  }
+  if (qtd <= 0) { qtd = 0; custo = 0; }
+  return { qtd, custo, pm: qtd > 0 ? custo / qtd : null, realizado };
+}
+
 async function loadAllData() {
   const errEl = document.getElementById('loadError');
   errEl.style.display = 'none';
   try {
-    const [posRes, rfRes, patRes, provRes, metaRes, dismissRes] = await Promise.all([
+    const [posRes, rfRes, patRes, provRes, metaRes, dismissRes, opsRes] = await Promise.all([
       sb.from('v_posicao_atual').select('*'),
       sb.from('v_renda_fixa_atual').select('*'),
       sb.from('v_patrimonio_mensal').select('*').order('mes_referencia'),
       sb.from('v_proventos_mensal').select('*').order('mes_referencia'),
       sb.from('metas').select('*').eq('tipo', 'patrimonio').limit(1),
       sb.from('alertas').select('chave').eq('lido', true).not('chave', 'is', null),
+      sb.from('operacoes').select('*').order('data'),
     ]);
     for (const r of [posRes, rfRes, patRes, provRes, metaRes, dismissRes]) if (r.error) throw r.error;
+    // operacoes é opcional: se a tabela ainda não existir, segue sem ela em vez de travar tudo
+    if (opsRes.error) console.warn('Tabela operacoes indisponível (rode supabase/operacoes.sql):', opsRes.error.message);
 
     const posicoes = posRes.data, rendaFixaRows = rfRes.data;
     const patrimonio = patRes.data, proventos = provRes.data;
     const metaRow = metaRes.data[0];
     const dismissedKeys = new Set(dismissRes.data.map(r => r.chave));
 
+    const opsPorAtivo = {};
+    (opsRes.error ? [] : (opsRes.data || [])).forEach(o => {
+      (opsPorAtivo[o.ativo_id] = opsPorAtivo[o.ativo_id] || []).push(o);
+    });
+
     if (!patrimonio.length) throw new Error('Nenhuma posição encontrada em posicoes_mensais.');
     const ultimo = patrimonio[patrimonio.length - 1];
     const penultimo = patrimonio.length > 1 ? patrimonio[patrimonio.length - 2] : null;
 
-    const byCategoria = (cat) => posicoes.filter(p => p.categoria === cat).map(p => ({
-      id: p.ativo_id, ticker: p.ticker, pm: p.preco_medio, qtd: p.quantidade,
-      atual: p.valor_posicao, custo: p.custo_total, moeda: p.moeda_original, mes: mesLabel(p.mes_referencia),
-    }));
+    const byCategoria = (cat) => posicoes.filter(p => p.categoria === cat).map(p => {
+      const ops = opsPorAtivo[p.ativo_id] || [];
+      const qtdBase = Number(p.quantidade) || 0;
+      // preço unitário da última posição conhecida — usado pra reprecificar se a quantidade mudar
+      const precoBase = qtdBase > 0 ? (Number(p.valor_posicao) || 0) / qtdBase : null;
+      const custoBase = p.custo_total != null ? Number(p.custo_total)
+        : (p.preco_medio != null && qtdBase ? Number(p.preco_medio) * qtdBase : (Number(p.valor_posicao) || 0));
+      const calc = aplicarOperacoes(qtdBase, custoBase, ops);
+      const atual = precoBase != null ? calc.qtd * precoBase : (Number(p.valor_posicao) || 0);
+      return {
+        id: p.ativo_id, ticker: p.ticker, nome: p.nome,
+        pm: calc.pm, qtd: calc.qtd, custo: calc.custo, atual,
+        moeda: p.moeda_original, mes: mesLabel(p.mes_referencia),
+        ops, realizado: calc.realizado,
+      };
+    });
 
     const allocation = ALLOC_CATEGORIES.map(cat => ({
       categoria: cat, classe: CATEGORY_LABEL[cat],
@@ -599,6 +733,126 @@ function recomputarTotais() {
   renderMeta();
   renderTreemap();
   renderLegend();
+}
+
+/* ---------------- Modal de operações (compra/venda) ---------------- */
+let opsAtivoAtual = null;
+
+function acharAtivo(ativoId) {
+  return [...DATA.FII, ...DATA.BR, ...DATA.INTL, ...DATA.CRYPTO].find(a => a.id === ativoId) || null;
+}
+
+function abrirOperacoes(ativoId) {
+  const a = acharAtivo(ativoId);
+  if (!a) return;
+  opsAtivoAtual = a;
+  document.getElementById('opsTitulo').textContent = `Operações — ${a.ticker}`;
+  document.getElementById('opPrecoLabel').childNodes[0].nodeValue =
+    `Preço unitário (${a.moeda || 'BRL'}) `;
+  document.getElementById('opData').value = new Date().toISOString().slice(0, 10);
+  document.getElementById('opsErro').style.display = 'none';
+  document.getElementById('opsForm').reset();
+  document.getElementById('opData').value = new Date().toISOString().slice(0, 10);
+  document.getElementById('opTipo').value = 'compra';
+  renderOpsModal();
+  document.getElementById('opsOverlay').classList.add('open');
+}
+
+function fecharOperacoes() {
+  document.getElementById('opsOverlay').classList.remove('open');
+  opsAtivoAtual = null;
+}
+
+function renderOpsModal() {
+  const a = opsAtivoAtual;
+  if (!a) return;
+  const moeda = a.moeda || 'BRL';
+  const pmTxt = a.pm != null
+    ? (moeda === 'BRL' ? brl(a.pm) : `${a.pm.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2})} ${moeda}`)
+    : '—';
+  document.getElementById('opsPosicao').innerHTML =
+    `Posição atual: <strong>${a.qtd.toLocaleString('pt-BR')}</strong> · Preço médio: <strong>${pmTxt}</strong>` +
+    (a.realizado ? ` · Resultado realizado: <strong class="${a.realizado>=0?'pl-pos':'pl-neg'}">${brl(a.realizado)}</strong>` : '');
+
+  const lista = document.getElementById('opsLista');
+  const ops = [...(a.ops || [])].sort((x, y) => String(y.data).localeCompare(String(x.data)));
+  if (!ops.length) {
+    lista.innerHTML = `<div class="op-vazio">Nenhuma operação lançada ainda. A posição atual é a que veio da planilha.</div>`;
+    return;
+  }
+  lista.innerHTML = ops.map(o => {
+    const q = Number(o.quantidade), p = Number(o.preco_unitario), t = Number(o.taxas) || 0;
+    const totalTxt = moeda === 'BRL' ? brl(q * p + (o.tipo === 'compra' ? t : -t))
+      : `${(q * p).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2})} ${moeda}`;
+    const precoTxt = moeda === 'BRL' ? brl(p)
+      : `${p.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2})} ${moeda}`;
+    return `<div class="op-row">
+      <div>
+        <span class="op-tag ${o.tipo}">${o.tipo === 'compra' ? 'COMPRA' : 'VENDA'}</span>
+        <span style="margin-left:8px">${fmtDate(o.data)}</span>
+      </div>
+      <div class="tabular" style="flex:1;text-align:right">
+        ${q.toLocaleString('pt-BR')} × ${precoTxt} = <strong>${totalTxt}</strong>
+      </div>
+      <button class="row-action" onclick="excluirOperacao('${o.id}')">Excluir</button>
+    </div>`;
+  }).join('');
+}
+
+async function salvarOperacao(event) {
+  event.preventDefault();
+  if (!opsAtivoAtual) return;
+  const btn = document.getElementById('opSalvarBtn');
+  const erroEl = document.getElementById('opsErro');
+  erroEl.style.display = 'none';
+
+  const tipo = document.getElementById('opTipo').value;
+  const data = document.getElementById('opData').value;
+  const quantidade = parseFloat(document.getElementById('opQtd').value);
+  const preco_unitario = parseFloat(document.getElementById('opPreco').value);
+  const taxas = parseFloat(document.getElementById('opTaxas').value) || 0;
+
+  if (!data || !(quantidade > 0) || !(preco_unitario >= 0)) {
+    erroEl.textContent = 'Preencha data, quantidade (maior que zero) e preço.';
+    erroEl.style.display = 'block';
+    return;
+  }
+  if (tipo === 'venda' && quantidade > opsAtivoAtual.qtd) {
+    erroEl.textContent = `Você tem ${opsAtivoAtual.qtd.toLocaleString('pt-BR')} — não dá pra vender ${quantidade.toLocaleString('pt-BR')}.`;
+    erroEl.style.display = 'block';
+    return;
+  }
+
+  btn.disabled = true; btn.textContent = 'Salvando…';
+  try {
+    const { data: { user } } = await sb.auth.getUser();
+    const { error } = await sb.from('operacoes').insert({
+      user_id: user.id, ativo_id: opsAtivoAtual.id,
+      tipo, data, quantidade, preco_unitario, taxas,
+    });
+    if (error) throw error;
+    const ativoId = opsAtivoAtual.id;
+    await loadAllData();
+    opsAtivoAtual = acharAtivo(ativoId);
+    document.getElementById('opsForm').reset();
+    document.getElementById('opData').value = new Date().toISOString().slice(0, 10);
+    renderOpsModal();
+  } catch (err) {
+    console.error(err);
+    erroEl.textContent = 'Erro ao salvar: ' + (err.message || err);
+    erroEl.style.display = 'block';
+  } finally {
+    btn.disabled = false; btn.textContent = 'Adicionar';
+  }
+}
+
+async function excluirOperacao(opId) {
+  if (!confirm('Excluir esta operação? A posição e o preço médio serão recalculados.')) return;
+  const ativoId = opsAtivoAtual ? opsAtivoAtual.id : null;
+  const { error } = await sb.from('operacoes').delete().eq('id', opId);
+  if (error) { alert('Erro ao excluir: ' + error.message); return; }
+  await loadAllData();
+  if (ativoId) { opsAtivoAtual = acharAtivo(ativoId); renderOpsModal(); }
 }
 
 /* ---------------- Ações (escrita real no banco — sem SQL manual) ---------------- */
@@ -1013,7 +1267,10 @@ function renderAssetTable() {
     const pctGrupo = posicao / groupTotal;
     const pctCarteira = posicao / DATA.totalSemPrev;
     const staleTag = a.mes !== DATA.mesRefLabel ? `<span class="stale-tag">${a.mes}</span>` : '';
-    const encerrarBtn = `<button class="row-action" onclick="encerrarAtivo('${a.id}', '${a.ticker}')">Encerrar</button>`;
+    const nOps = (a.ops || []).length;
+    const encerrarBtn =
+      `<button class="row-action" onclick="abrirOperacoes('${a.id}')" title="Registrar compra ou venda">Operações${nOps ? ` (${nOps})` : ''}</button>` +
+      ` <button class="row-action" onclick="encerrarAtivo('${a.id}', '${a.ticker}')">Encerrar</button>`;
     const live = livePrecoBRL(a.ticker);
     if (conf.hasPm) {
       const custo = a.custo != null ? a.custo : a.pm * a.qtd;
