@@ -521,6 +521,45 @@
   </div>
 </div>
 
+<!-- ===================== MODAL DE APORTES/RESGATES (renda fixa) ===================== -->
+<div id="rfOverlay" class="modal-overlay" onclick="if(event.target===this) fecharMovRf()">
+  <div class="modal-card">
+    <div class="modal-head">
+      <div>
+        <h2 id="rfTitulo">Aportes e resgates</h2>
+        <div class="modal-sub" id="rfPosicao"></div>
+      </div>
+      <button class="row-action" onclick="fecharMovRf()">Fechar</button>
+    </div>
+
+    <form id="rfForm" onsubmit="salvarMovRf(event)">
+      <div class="ops-grid">
+        <label>Tipo
+          <select id="rfTipo" required>
+            <option value="aporte">Aporte (investir mais)</option>
+            <option value="resgate">Resgate (tirar)</option>
+          </select>
+        </label>
+        <label>Data
+          <input type="date" id="rfData" required>
+        </label>
+        <label>Valor (R$)
+          <input type="number" id="rfValor" step="any" min="0.01" placeholder="0,00" required>
+        </label>
+        <div class="ops-submit">
+          <button type="submit" class="btn-primary" id="rfSalvarBtn">Adicionar</button>
+        </div>
+      </div>
+      <div class="ops-erro" id="rfErro" style="display:none;"></div>
+    </form>
+
+    <div class="ops-lista-wrap">
+      <div class="ops-lista-titulo">Movimentações lançadas</div>
+      <div id="rfLista"></div>
+    </div>
+  </div>
+</div>
+
 <script>
 /* ---------------- Supabase client ---------------- */
 const SUPABASE_URL = 'https://hqkdmswodfafvkoscesk.supabase.co';
@@ -627,7 +666,7 @@ async function loadAllData() {
   const errEl = document.getElementById('loadError');
   errEl.style.display = 'none';
   try {
-    const [posRes, rfRes, patRes, provRes, metaRes, dismissRes, opsRes, saldosRes] = await Promise.all([
+    const [posRes, rfRes, patRes, provRes, metaRes, dismissRes, opsRes, saldosRes, movRfRes] = await Promise.all([
       sb.from('v_posicao_atual').select('*'),
       sb.from('v_renda_fixa_atual').select('*'),
       sb.from('v_patrimonio_mensal').select('*').order('mes_referencia'),
@@ -636,11 +675,13 @@ async function loadAllData() {
       sb.from('alertas').select('chave').eq('lido', true).not('chave', 'is', null),
       sb.from('operacoes').select('*').order('data'),
       sb.from('saldos_manuais').select('*').order('data', { ascending: false }).order('criado_em', { ascending: false }),
+      sb.from('movimentacoes_rf').select('*').order('data'),
     ]);
     for (const r of [posRes, rfRes, patRes, provRes, metaRes, dismissRes]) if (r.error) throw r.error;
-    // operacoes/saldos são opcionais: se a tabela ainda não existir, segue sem ela em vez de travar tudo
+    // operacoes/saldos/movimentacoes são opcionais: se a tabela ainda não existir, segue sem ela em vez de travar tudo
     if (opsRes.error) console.warn('Tabela operacoes indisponível (rode supabase/operacoes.sql):', opsRes.error.message);
     if (saldosRes.error) console.warn('Tabela saldos_manuais indisponível (rode supabase/saldos_manuais.sql):', saldosRes.error.message);
+    if (movRfRes.error) console.warn('Tabela movimentacoes_rf indisponível (rode supabase/movimentacoes_rf.sql):', movRfRes.error.message);
 
     const posicoes = posRes.data, rendaFixaRows = rfRes.data;
     const patrimonio = patRes.data, proventos = provRes.data;
@@ -655,6 +696,11 @@ async function loadAllData() {
     const saldoManualPorAtivo = {};
     (saldosRes.error ? [] : (saldosRes.data || [])).forEach(s => {
       if (!(s.ativo_id in saldoManualPorAtivo)) saldoManualPorAtivo[s.ativo_id] = { valor: Number(s.valor), data: s.data };
+    });
+    // aportes/resgates de renda fixa por ativo
+    const movRfPorAtivo = {};
+    (movRfRes.error ? [] : (movRfRes.data || [])).forEach(m => {
+      (movRfPorAtivo[m.ativo_id] = movRfPorAtivo[m.ativo_id] || []).push(m);
     });
 
     if (!patrimonio.length) throw new Error('Nenhuma posição encontrada em posicoes_mensais.');
@@ -711,10 +757,21 @@ async function loadAllData() {
       allocation,
       FII: byCategoria('FII'), BR: byCategoria('Acao BR'), INTL: byCategoria('Acao Intl'), CRYPTO: byCategoria('Cripto'),
       SALDOS,
-      RENDA_FIXA: rendaFixaRows.map(r => ({
-        id: r.ativo_id, nome: r.nome, compra: r.data_compra, vencimento: r.data_vencimento,
-        indexador: r.indexador, investido: r.valor_investido, atual: r.valor_atual, mes: mesLabel(r.mes_referencia),
-      })),
+      RENDA_FIXA: rendaFixaRows.map(r => {
+        const movs = movRfPorAtivo[r.ativo_id] || [];
+        const aportes = movs.filter(m => m.tipo === 'aporte').reduce((s, m) => s + Number(m.valor), 0);
+        const resgates = movs.filter(m => m.tipo === 'resgate').reduce((s, m) => s + Number(m.valor), 0);
+        const liquidoMov = aportes - resgates; // aportes somam, resgates subtraem (a valor de face)
+        const investidoBase = Number(r.valor_investido) || 0;
+        const atualBase = Number(r.valor_atual) || 0;
+        return {
+          id: r.ativo_id, nome: r.nome, compra: r.data_compra, vencimento: r.data_vencimento,
+          indexador: r.indexador, mes: mesLabel(r.mes_referencia),
+          investidoBase, atualBase, movs, liquidoMov,
+          investido: investidoBase + liquidoMov,
+          atual: atualBase + liquidoMov, // valor de fallback; o crescimento do original vem da função tesouro
+        };
+      }),
       dividendosMensais: proventos.map(p => ({ mes: mesLabel(p.mes_referencia), valor: p.total })),
       meta: metaRow ? { id: metaRow.id, valor: metaRow.valor_alvo } : { id: null, valor: 2000000 },
       dismissedAlertKeys: dismissedKeys,
@@ -755,7 +812,10 @@ function valorEfetivo(a) {
 }
 function valorEfetivoRendaFixa(a) {
   const live = DATA.tesouroAoVivo[a.id];
-  return (live && live.valorAtual != null) ? live.valorAtual : a.atual;
+  // a função tesouro cresce só o valor original (investidoBase); os aportes/resgates
+  // entram a valor de face por cima.
+  if (live && live.valorAtual != null) return live.valorAtual + (a.liquidoMov || 0);
+  return a.atual;
 }
 function totalSaldoCategoria(cat) {
   return (DATA.SALDOS || []).filter(s => s.categoria === cat).reduce((s, a) => s + (Number(a.atual) || 0), 0);
@@ -910,6 +970,95 @@ async function excluirOperacao(opId) {
   if (ativoId) { opsAtivoAtual = acharAtivo(ativoId); renderOpsModal(); }
 }
 
+/* ---------------- Modal de aportes/resgates (renda fixa) ---------------- */
+let rfAtivoAtual = null;
+function acharRf(ativoId) { return (DATA.RENDA_FIXA || []).find(a => a.id === ativoId) || null; }
+
+function abrirMovRf(ativoId) {
+  const a = acharRf(ativoId);
+  if (!a) return;
+  rfAtivoAtual = a;
+  document.getElementById('rfTitulo').textContent = `Aportes e resgates — ${a.nome}`;
+  document.getElementById('rfForm').reset();
+  document.getElementById('rfData').value = new Date().toISOString().slice(0, 10);
+  document.getElementById('rfTipo').value = 'aporte';
+  document.getElementById('rfErro').style.display = 'none';
+  renderMovRfModal();
+  document.getElementById('rfOverlay').classList.add('open');
+}
+function fecharMovRf() { document.getElementById('rfOverlay').classList.remove('open'); rfAtivoAtual = null; }
+
+function renderMovRfModal() {
+  const a = rfAtivoAtual;
+  if (!a) return;
+  const valorAtual = valorEfetivoRendaFixa(a);
+  document.getElementById('rfPosicao').innerHTML =
+    `Investido: <strong>${brl(a.investido)}</strong> · Valor atual: <strong>${brl(valorAtual)}</strong>` +
+    (a.liquidoMov ? ` · Movimentado: <strong>${brl(a.liquidoMov)}</strong>` : '');
+  const lista = document.getElementById('rfLista');
+  const movs = [...(a.movs || [])].sort((x, y) => String(y.data).localeCompare(String(x.data)));
+  if (!movs.length) {
+    lista.innerHTML = `<div class="op-vazio">Nenhum aporte ou resgate lançado. A posição é a que veio da planilha.</div>`;
+    return;
+  }
+  lista.innerHTML = movs.map(m => `<div class="op-row">
+      <div>
+        <span class="op-tag ${m.tipo === 'aporte' ? 'compra' : 'venda'}">${m.tipo === 'aporte' ? 'APORTE' : 'RESGATE'}</span>
+        <span style="margin-left:8px">${fmtDate(m.data)}</span>
+      </div>
+      <div class="tabular" style="flex:1;text-align:right"><strong>${brl(Number(m.valor))}</strong></div>
+      <button class="row-action" onclick="excluirMovRf('${m.id}')">Excluir</button>
+    </div>`).join('');
+}
+
+async function salvarMovRf(event) {
+  event.preventDefault();
+  if (!rfAtivoAtual) return;
+  const btn = document.getElementById('rfSalvarBtn');
+  const erroEl = document.getElementById('rfErro');
+  erroEl.style.display = 'none';
+  const tipo = document.getElementById('rfTipo').value;
+  const data = document.getElementById('rfData').value;
+  const valor = parseFloat(document.getElementById('rfValor').value);
+  if (!data || !(valor > 0)) {
+    erroEl.textContent = 'Preencha data e valor (maior que zero).';
+    erroEl.style.display = 'block';
+    return;
+  }
+  if (tipo === 'resgate' && valor > valorEfetivoRendaFixa(rfAtivoAtual) + 0.01) {
+    erroEl.textContent = `O valor atual é ${brl(valorEfetivoRendaFixa(rfAtivoAtual))} — não dá pra resgatar ${brl(valor)}.`;
+    erroEl.style.display = 'block';
+    return;
+  }
+  btn.disabled = true; btn.textContent = 'Salvando…';
+  try {
+    const { data: { user } } = await sb.auth.getUser();
+    const { error } = await sb.from('movimentacoes_rf').insert({ user_id: user.id, ativo_id: rfAtivoAtual.id, tipo, data, valor });
+    if (error) throw error;
+    const ativoId = rfAtivoAtual.id;
+    await loadAllData();
+    rfAtivoAtual = acharRf(ativoId);
+    document.getElementById('rfForm').reset();
+    document.getElementById('rfData').value = new Date().toISOString().slice(0, 10);
+    renderMovRfModal();
+  } catch (err) {
+    console.error(err);
+    erroEl.textContent = 'Erro ao salvar: ' + (err.message || err);
+    erroEl.style.display = 'block';
+  } finally {
+    btn.disabled = false; btn.textContent = 'Adicionar';
+  }
+}
+
+async function excluirMovRf(movId) {
+  if (!confirm('Excluir esta movimentação?')) return;
+  const ativoId = rfAtivoAtual ? rfAtivoAtual.id : null;
+  const { error } = await sb.from('movimentacoes_rf').delete().eq('id', movId);
+  if (error) { alert('Erro ao excluir: ' + error.message); return; }
+  await loadAllData();
+  if (ativoId) { rfAtivoAtual = acharRf(ativoId); renderMovRfModal(); }
+}
+
 /* ---------------- Ações (escrita real no banco — sem SQL manual) ---------------- */
 async function encerrarAtivo(ativoId, nomeExibicao) {
   if (!confirm(`Marcar "${nomeExibicao}" como encerrado?\n\nO histórico de posições é preservado — ele só some das abas de ativos ativos.`)) return;
@@ -1059,7 +1208,7 @@ async function atualizarTesouroAoVivo() {
   const statusEl = document.getElementById('aoVivoStatus');
   const titulos = DATA.RENDA_FIXA
     .filter(a => !a.indexador.toUpperCase().includes('CDI'))
-    .map(a => ({ id: a.id, indexador: a.indexador, vencimento: a.vencimento, compra: a.compra, investido: a.investido }));
+    .map(a => ({ id: a.id, indexador: a.indexador, vencimento: a.vencimento, compra: a.compra, investido: a.investidoBase }));
   if (!titulos.length) { statusEl.textContent = 'Nenhum título do Tesouro Direto para consultar.'; return; }
 
   btn.disabled = true; btn.textContent = 'Calculando…';
@@ -1347,7 +1496,10 @@ function renderAssetTable() {
         <td class="tabular ${plClass}">${pl>=0?'+':''}${pct(pl)}</td>
         <td class="tabular">${pct(pctGrupo)}</td>
         <td class="tabular">${pct(pctCarteira)}</td>
-        <td><button class="row-action" onclick="encerrarAtivo('${a.id}', '${a.nome.replace(/'/g,"\\'")}')">Encerrar</button></td>
+        <td>
+          <button class="row-action" onclick="abrirMovRf('${a.id}')" title="Aportar mais ou resgatar">Aportes/Resgates${(a.movs||[]).length ? ` (${a.movs.length})` : ''}</button>
+          <button class="row-action" onclick="encerrarAtivo('${a.id}', '${a.nome.replace(/'/g,"\\'")}')">Encerrar</button>
+        </td>
       </tr>`;
     }).join('') + `<tr class="totals-row">
         <td class="ticker-name">Total</td>
