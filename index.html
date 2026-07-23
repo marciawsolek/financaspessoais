@@ -322,6 +322,22 @@
   .op-tag.venda { color: var(--status-critical); background: color-mix(in srgb, var(--status-critical) 12%, transparent); }
   .op-vazio { font-size: 13px; color: var(--text-muted); }
 
+  /* ---------- Simulador de metas ---------- */
+  .sim-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 760px) { .sim-grid { grid-template-columns: 1fr; } }
+  .sim-card { display: flex; flex-direction: column; gap: 12px; }
+  .sim-titulo { font-size: 14px; font-weight: 600; }
+  .sim-inputs { display: flex; gap: 12px; flex-wrap: wrap; }
+  .sim-inputs label { display: flex; flex-direction: column; gap: 5px; font-size: 12px; color: var(--text-secondary); flex: 1; min-width: 130px; }
+  .sim-inputs input {
+    padding: 9px 11px; border-radius: 9px; border: 1px solid var(--border);
+    background: var(--page); color: var(--text-primary); font-size: 14px; width: 100%;
+  }
+  .sim-resultado { font-size: 14px; line-height: 1.55; color: var(--text-primary); }
+  .sim-resultado strong { font-weight: 600; }
+  .sim-resultado .destaque { font-size: 22px; font-weight: 700; letter-spacing: -0.01em; display:block; margin: 2px 0; }
+  .sim-nota { font-size: 12px; color: var(--text-muted); line-height: 1.5; }
+
   /* ---------- Ajustes para celular ---------- */
   @media (max-width: 640px) {
     #dash { padding: 16px 12px 60px; }
@@ -406,6 +422,32 @@
         <div id="divTileValue" class="value tabular">—</div>
         <div class="progress-track"><div id="divTileFill" class="progress-fill" style="width:0%"></div></div>
         <div id="divTileSub" class="delta tabular" style="color:var(--text-muted)"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Simulador de metas -->
+  <section>
+    <div class="section-head"><h2>Simulador de metas e aportes</h2></div>
+    <div class="sim-grid">
+      <div class="card sim-card">
+        <div class="sim-titulo">Patrimônio → <span id="simMetaPatrimonio"></span></div>
+        <div class="sim-inputs">
+          <label>Aporte por mês (R$)
+            <input type="number" id="simAporte" step="100" min="0" value="5000" oninput="renderSimulador()">
+          </label>
+          <label>Retorno anual esperado (%)
+            <input type="number" id="simRetorno" step="0.5" min="0" value="10" oninput="renderSimulador()">
+          </label>
+        </div>
+        <div class="sim-resultado" id="simPatrimonioResultado"></div>
+        <div class="sim-nota" id="simPatrimonioNota"></div>
+      </div>
+
+      <div class="card sim-card">
+        <div class="sim-titulo">Renda passiva → R$ 10.000/mês</div>
+        <div class="sim-resultado" id="simRendaResultado"></div>
+        <div class="sim-nota" id="simRendaNota"></div>
       </div>
     </div>
   </section>
@@ -848,6 +890,7 @@ function recomputarTotais() {
   renderMeta();
   renderTreemap();
   renderLegend();
+  if (document.getElementById('simAporte')) renderSimulador();
 }
 
 /* ---------------- Modal de operações (compra/venda) ---------------- */
@@ -1641,6 +1684,89 @@ function renderDivChart() {
   document.getElementById('divTileSub').textContent = `${pct(ultimo.valor/metaMensal)} da meta mensal — ver histórico completo abaixo`;
 }
 
+/* ---------------- Simulador de metas e aportes ---------------- */
+// meses necessários pra sair de P e chegar em alvo, aportando PMT/mês, com juros r/mês
+function mesesParaMeta(P, alvo, PMT, r) {
+  if (P >= alvo) return 0;
+  if (r <= 0) return PMT > 0 ? (alvo - P) / PMT : Infinity;
+  const num = alvo + PMT / r;
+  const den = P + PMT / r;
+  if (den <= 0 || num / den <= 0) return Infinity;
+  const n = Math.log(num / den) / Math.log(1 + r);
+  return n > 0 ? n : Infinity;
+}
+function fmtDuracao(meses) {
+  if (!isFinite(meses)) return 'nunca (com esse aporte/retorno)';
+  const m = Math.ceil(meses);
+  const anos = Math.floor(m / 12), rem = m % 12;
+  if (m <= 0) return 'meta já atingida';
+  if (anos === 0) return `${rem} ${rem === 1 ? 'mês' : 'meses'}`;
+  if (rem === 0) return `${anos} ${anos === 1 ? 'ano' : 'anos'}`;
+  return `${anos} ${anos === 1 ? 'ano' : 'anos'} e ${rem} ${rem === 1 ? 'mês' : 'meses'}`;
+}
+// mês/ano de referência dos dados + N meses -> rótulo tipo "set/2029"
+function mesFuturoLabel(mesesAdiante) {
+  if (!isFinite(mesesAdiante)) return '';
+  const [y, m] = DATA.mesRefIso.split('-').map(Number);
+  const d = new Date(Date.UTC(y, (m - 1) + Math.ceil(mesesAdiante), 1));
+  return MESES[d.getUTCMonth()] + '/' + d.getUTCFullYear();
+}
+
+function renderSimulador() {
+  if (!DATA) return;
+  const metaPat = DATA.meta.valor;
+  document.getElementById('simMetaPatrimonio').textContent = brl(metaPat);
+
+  const aporte = parseFloat(document.getElementById('simAporte').value) || 0;
+  const retAnual = parseFloat(document.getElementById('simRetorno').value) || 0;
+  const r = Math.pow(1 + retAnual / 100, 1 / 12) - 1; // retorno mensal equivalente
+
+  // --- Patrimônio ---
+  const P = DATA.totalSemPrev;
+  const resPat = document.getElementById('simPatrimonioResultado');
+  const notaPat = document.getElementById('simPatrimonioNota');
+  if (P >= metaPat) {
+    resPat.innerHTML = `<span class="destaque pl-pos">Meta atingida!</span> Patrimônio atual (${brl(P)}) já passou de ${brl(metaPat)}.`;
+    notaPat.textContent = '';
+  } else {
+    const n = mesesParaMeta(P, metaPat, aporte, r);
+    const falta = metaPat - P;
+    resPat.innerHTML = `Aportando <strong>${brl(aporte)}/mês</strong> a <strong>${retAnual.toLocaleString('pt-BR')}% ao ano</strong>, você chega aos ${brl(metaPat)} em:` +
+      `<span class="destaque">${fmtDuracao(n)}</span>` +
+      (isFinite(n) ? `<span style="font-size:12.5px;color:var(--text-secondary)">por volta de ${mesFuturoLabel(n)}</span>` : '');
+    notaPat.textContent = `Faltam ${brl(falta)}. Ajuste o aporte e o retorno pra ver quanto muda.`;
+  }
+
+  // --- Renda passiva (R$ 10 mil/mês em dividendos) ---
+  const metaRenda = 10000;
+  const meses = DATA.dividendosMensais || [];
+  const ultimos = meses.slice(-6);
+  const divMedio = ultimos.length ? ultimos.reduce((s, d) => s + d.valor, 0) / ultimos.length : 0;
+  // base geradora de dividendos: FII + ações (BR e intl)
+  const baseGeradora = [...DATA.FII, ...DATA.BR].reduce((s, a) => s + valorEfetivo(a), 0)
+    + DATA.INTL.reduce((s, a) => s + valorEfetivo(a), 0);
+  const yieldMensal = baseGeradora > 0 ? divMedio / baseGeradora : 0;
+  const resRenda = document.getElementById('simRendaResultado');
+  const notaRenda = document.getElementById('simRendaNota');
+
+  if (yieldMensal <= 0) {
+    resRenda.innerHTML = `<span class="destaque">—</span>Sem dividendos suficientes pra estimar. Registre os proventos pra ativar este cálculo.`;
+    notaRenda.textContent = '';
+  } else {
+    const baseNecessaria = metaRenda / yieldMensal;
+    const faltaInvestir = Math.max(0, baseNecessaria - baseGeradora);
+    const pctMeta = Math.min(divMedio / metaRenda, 1);
+    // tempo pra acumular a base necessária em ativos de dividendos, com o mesmo aporte+retorno
+    const nRenda = mesesParaMeta(baseGeradora, baseNecessaria, aporte, r);
+    resRenda.innerHTML =
+      `Hoje você recebe <strong>${brl(divMedio)}/mês</strong> (média 6 meses) — <strong>${pct(pctMeta)}</strong> da meta.` +
+      `<span class="destaque">${brl(faltaInvestir)}</span>` +
+      `<span style="font-size:12.5px;color:var(--text-secondary)">é quanto falta investir em ativos de dividendos pra chegar aos R$ 10 mil/mês</span>`;
+    notaRenda.innerHTML = `Rendimento atual: <strong>${(yieldMensal*100).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2})}% ao mês</strong> sobre ${brl(baseGeradora)} em FIIs e ações. ` +
+      (isFinite(nRenda) ? `No aporte atual, você atinge esse valor em ~${fmtDuracao(nRenda)}.` : '');
+  }
+}
+
 function renderPatrimonioTiles() {
   const setTile = (valId, deltaId, total, delta) => {
     document.getElementById(valId).textContent = brl(total);
@@ -1706,6 +1832,7 @@ function renderAll() {
   renderAssetTable();
   renderVencimentos();
   renderDivChart();
+  renderSimulador();
   renderAlerts();
 }
 window.addEventListener('resize', () => { if (DATA && document.getElementById('dash').style.display === 'block') renderTreemap(); });
