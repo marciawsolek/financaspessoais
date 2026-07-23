@@ -217,16 +217,17 @@
   }
   .tab-btn.active { background: var(--text-primary); color: var(--surface); border-color: var(--text-primary); }
   .table-wrap {
-    background: var(--surface); border: 1px solid var(--border); border-radius: 14px; overflow: hidden;
+    background: var(--surface); border: 1px solid var(--border); border-radius: 14px;
+    overflow-x: auto; -webkit-overflow-scrolling: touch;
   }
   table { width: 100%; border-collapse: collapse; font-size: 13px; }
   thead th {
     text-align: right; font-weight: 500; color: var(--text-muted); font-size: 11.5px;
-    text-transform: uppercase; letter-spacing: 0.03em;
+    text-transform: uppercase; letter-spacing: 0.03em; white-space: nowrap;
     padding: 12px 16px; border-bottom: 1px solid var(--gridline);
   }
   thead th:first-child, td:first-child { text-align: left; }
-  tbody td { padding: 11px 16px; border-bottom: 1px solid var(--gridline); text-align: right; }
+  tbody td { padding: 11px 16px; border-bottom: 1px solid var(--gridline); text-align: right; white-space: nowrap; }
   tbody tr:last-child td { border-bottom: none; }
   tbody tr:hover { background: color-mix(in srgb, var(--text-primary) 3%, transparent); }
   tbody tr.totals-row { font-weight: 600; border-top: 2px solid var(--baseline); background: color-mix(in srgb, var(--text-primary) 3%, transparent); }
@@ -320,6 +321,34 @@
   .op-tag.compra { color: var(--good); background: color-mix(in srgb, var(--good) 12%, transparent); }
   .op-tag.venda { color: var(--status-critical); background: color-mix(in srgb, var(--status-critical) 12%, transparent); }
   .op-vazio { font-size: 13px; color: var(--text-muted); }
+
+  /* ---------- Ajustes para celular ---------- */
+  @media (max-width: 640px) {
+    #dash { padding: 16px 12px 60px; }
+    header.top { margin-bottom: 18px; gap: 10px; }
+    header.top h1 { font-size: 17px; }
+    section { margin-bottom: 22px; }
+    .tiles { grid-template-columns: 1fr 1fr; gap: 10px; }
+    .tile { padding: 14px; }
+    .tile .value { font-size: 18px; }
+    .tile .label { font-size: 11px; }
+    #treemap { height: 260px; }
+    .section-head { flex-wrap: wrap; gap: 4px 10px; }
+    .section-head h2 { font-size: 13.5px; }
+    .section-head .group-total { font-size: 12px; }
+    /* tabelas: células mais compactas, mas continuam roláveis na horizontal */
+    thead th { padding: 10px 11px; }
+    tbody td { padding: 9px 11px; }
+    .treemap-wrap, .card { padding: 12px; }
+    .modal-overlay { padding: 16px 10px; }
+    .modal-card { padding: 16px; border-radius: 14px; }
+    footer { font-size: 11px; }
+    /* dica visual de que a tabela rola pro lado */
+    .table-wrap { position: relative; }
+  }
+  @media (max-width: 380px) {
+    .tiles { grid-template-columns: 1fr; }
+  }
 </style>
 </head>
 <body>
@@ -413,7 +442,7 @@
       <span id="groupTotal" class="group-total tabular"></span>
     </div>
     <div class="tabs" id="assetTabs"></div>
-    <div style="display:flex; align-items:center; gap:10px; margin-bottom:10px;">
+    <div style="display:flex; align-items:center; gap:10px; margin-bottom:10px; flex-wrap:wrap;">
       <button class="row-action" onclick="atualizarCotacoesAoVivo()" id="btnAoVivo">Atualizar cotações ao vivo</button>
       <button class="row-action" onclick="atualizarInternacionaisAoVivo()" id="btnIntl" style="display:none;">Atualizar cotações ao vivo</button>
       <button class="row-action" onclick="atualizarTesouroAoVivo()" id="btnTesouro" style="display:none;">Atualizar valores do Tesouro</button>
