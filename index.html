@@ -627,7 +627,7 @@ async function loadAllData() {
   const errEl = document.getElementById('loadError');
   errEl.style.display = 'none';
   try {
-    const [posRes, rfRes, patRes, provRes, metaRes, dismissRes, opsRes] = await Promise.all([
+    const [posRes, rfRes, patRes, provRes, metaRes, dismissRes, opsRes, saldosRes] = await Promise.all([
       sb.from('v_posicao_atual').select('*'),
       sb.from('v_renda_fixa_atual').select('*'),
       sb.from('v_patrimonio_mensal').select('*').order('mes_referencia'),
@@ -635,10 +635,12 @@ async function loadAllData() {
       sb.from('metas').select('*').eq('tipo', 'patrimonio').limit(1),
       sb.from('alertas').select('chave').eq('lido', true).not('chave', 'is', null),
       sb.from('operacoes').select('*').order('data'),
+      sb.from('saldos_manuais').select('*').order('data', { ascending: false }).order('criado_em', { ascending: false }),
     ]);
     for (const r of [posRes, rfRes, patRes, provRes, metaRes, dismissRes]) if (r.error) throw r.error;
-    // operacoes é opcional: se a tabela ainda não existir, segue sem ela em vez de travar tudo
+    // operacoes/saldos são opcionais: se a tabela ainda não existir, segue sem ela em vez de travar tudo
     if (opsRes.error) console.warn('Tabela operacoes indisponível (rode supabase/operacoes.sql):', opsRes.error.message);
+    if (saldosRes.error) console.warn('Tabela saldos_manuais indisponível (rode supabase/saldos_manuais.sql):', saldosRes.error.message);
 
     const posicoes = posRes.data, rendaFixaRows = rfRes.data;
     const patrimonio = patRes.data, proventos = provRes.data;
@@ -648,6 +650,11 @@ async function loadAllData() {
     const opsPorAtivo = {};
     (opsRes.error ? [] : (opsRes.data || [])).forEach(o => {
       (opsPorAtivo[o.ativo_id] = opsPorAtivo[o.ativo_id] || []).push(o);
+    });
+    // saldo manual mais recente por ativo (a query já veio ordenada desc, então o 1º é o mais novo)
+    const saldoManualPorAtivo = {};
+    (saldosRes.error ? [] : (saldosRes.data || [])).forEach(s => {
+      if (!(s.ativo_id in saldoManualPorAtivo)) saldoManualPorAtivo[s.ativo_id] = { valor: Number(s.valor), data: s.data };
     });
 
     if (!patrimonio.length) throw new Error('Nenhuma posição encontrada em posicoes_mensais.');
@@ -677,6 +684,19 @@ async function loadAllData() {
       color: CATEGORY_COLOR[cat],
     })).filter(a => a.valor > 0);
 
+    // Categorias que são apenas "saldo" (sem quantidade × preço): Caixa, Previdência, FGTS, Imobilizado.
+    const CAT_SALDO_LABEL = { 'Caixa':'Caixa', 'Previdencia':'Previdência', 'FGTS':'FGTS', 'Imobilizado':'Imobilizado' };
+    const bySaldo = (cat) => posicoes.filter(p => p.categoria === cat).map(p => {
+      const base = Number(p.valor_posicao) || 0;
+      const manual = saldoManualPorAtivo[p.ativo_id] || null;
+      return {
+        id: p.ativo_id, ticker: p.ticker, nome: p.nome || p.ticker,
+        categoria: cat, categoriaLabel: CAT_SALDO_LABEL[cat] || cat,
+        base, atual: manual ? manual.valor : base, saldoManual: manual,
+      };
+    });
+    const SALDOS = ['Caixa','Previdencia','FGTS','Imobilizado'].flatMap(bySaldo);
+
     const cotacoesAoVivoAnteriores = DATA ? DATA.cotacoesAoVivo : {};
     const tesouroAoVivoAnterior = DATA ? DATA.tesouroAoVivo : {};
     const intlAoVivoAnterior = DATA ? DATA.intlAoVivo : {};
@@ -690,6 +710,7 @@ async function loadAllData() {
       mesRefLabel: mesLabel(ultimo.mes_referencia), mesRefIso: ultimo.mes_referencia,
       allocation,
       FII: byCategoria('FII'), BR: byCategoria('Acao BR'), INTL: byCategoria('Acao Intl'), CRYPTO: byCategoria('Cripto'),
+      SALDOS,
       RENDA_FIXA: rendaFixaRows.map(r => ({
         id: r.ativo_id, nome: r.nome, compra: r.data_compra, vencimento: r.data_vencimento,
         indexador: r.indexador, investido: r.valor_investido, atual: r.valor_atual, mes: mesLabel(r.mes_referencia),
@@ -707,6 +728,7 @@ async function loadAllData() {
 
     document.getElementById('headerSub').textContent =
       `Dados de referência: ${DATA.mesRefLabel} · ao vivo do Supabase`;
+    recomputarTotais(); // aplica os saldos manuais já no carregamento
     renderAll();
     autoFetchAoVivoSeNecessario();
   } catch (err) {
@@ -735,17 +757,21 @@ function valorEfetivoRendaFixa(a) {
   const live = DATA.tesouroAoVivo[a.id];
   return (live && live.valorAtual != null) ? live.valorAtual : a.atual;
 }
+function totalSaldoCategoria(cat) {
+  return (DATA.SALDOS || []).filter(s => s.categoria === cat).reduce((s, a) => s + (Number(a.atual) || 0), 0);
+}
 
-// Recalcula alocação e patrimônio total usando os valores ao vivo já buscados,
-// em vez do snapshot congelado do banco. Chamado depois de qualquer atualização
-// de cotação/tesouro, pra os tiles/treemap/totais não ficarem "atrasados".
+// Recalcula alocação e patrimônio total usando os valores ao vivo já buscados
+// e os saldos manuais atualizados, em vez do snapshot congelado do banco.
 function recomputarTotais() {
   const totalFII = DATA.FII.reduce((s, a) => s + valorEfetivo(a), 0);
   const totalBR = DATA.BR.reduce((s, a) => s + valorEfetivo(a), 0);
   const totalINTL = DATA.INTL.reduce((s, a) => s + valorEfetivo(a), 0);
   const totalCripto = DATA.CRYPTO.reduce((s, a) => s + valorEfetivo(a), 0);
   const totalRendaFixa = DATA.RENDA_FIXA.reduce((s, a) => s + valorEfetivoRendaFixa(a), 0);
-  const totalCaixa = DATA.allocation.find(a => a.categoria === 'Caixa')?.valor ?? 0; // sem fonte ao vivo
+  const totalCaixa = totalSaldoCategoria('Caixa');
+  const totalPrev = totalSaldoCategoria('Previdencia');
+  DATA.previdenciaValor = totalPrev; // Previdência entra só no "com previdência"
 
   const porCategoria = {
     'Renda Fixa': totalRendaFixa, 'Acao Intl': totalINTL, 'FII': totalFII,
@@ -907,6 +933,23 @@ async function editarMeta() {
     ({ error: err } = await sb.from('metas').insert({ user_id: user.id, nome: 'Independência financeira', valor_alvo: valor, tipo: 'patrimonio' }));
   }
   if (err) { alert('Erro ao salvar meta: ' + err.message); return; }
+  await loadAllData();
+}
+
+// Atualiza o saldo de uma conta/item (Caixa, Previdência, FGTS, Imobilizado).
+async function atualizarSaldo(ativoId) {
+  const a = (DATA.SALDOS || []).find(x => x.id === ativoId);
+  if (!a) return;
+  const atualFmt = (Number(a.atual) || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const novo = prompt(`Saldo atual de "${a.nome}" (R$):`, atualFmt);
+  if (novo === null) return;
+  const valor = parseFloat(String(novo).replace(/\./g, '').replace(',', '.'));
+  if (isNaN(valor) || valor < 0) { alert('Valor inválido.'); return; }
+  const { data: { user } } = await sb.auth.getUser();
+  const { error } = await sb.from('saldos_manuais').insert({
+    user_id: user.id, ativo_id: ativoId, valor, data: new Date().toISOString().slice(0, 10),
+  });
+  if (error) { alert('Erro ao salvar saldo: ' + error.message); return; }
   await loadAllData();
 }
 
@@ -1208,6 +1251,7 @@ function getClasses() {
     'Ações Internacionais': { data: DATA.INTL, hasPm: false },
     'Cripto (BTC)': { data: DATA.CRYPTO, hasPm: true },
     'Renda Fixa': { data: DATA.RENDA_FIXA, hasPm: false, rendaFixa: true },
+    'Saldos': { data: DATA.SALDOS || [], saldos: true },
   };
 }
 let activeClass = 'FII';
@@ -1248,6 +1292,32 @@ function renderAssetTable() {
   document.getElementById('btnIntl').style.display = ehIntl ? '' : 'none';
   document.getElementById('btnTesouro').style.display = conf.rendaFixa ? '' : 'none';
   document.getElementById('aoVivoStatus').textContent = '';
+
+  if (conf.saldos) {
+    const grupoPorCat = {};
+    conf.data.forEach(a => { grupoPorCat[a.categoriaLabel] = (grupoPorCat[a.categoriaLabel] || 0) + (Number(a.atual) || 0); });
+    const groupTotal = conf.data.reduce((s, a) => s + (Number(a.atual) || 0), 0);
+    groupTotalEl.innerHTML = `Total Saldos: <strong>${brl(groupTotal)}</strong>`;
+    head.innerHTML = ['Conta / item','Categoria','Saldo atual','% carteira','Atualizado em','']
+      .map(c => `<th>${c}</th>`).join('');
+    body.innerHTML = conf.data.map(a => {
+      const pctCarteira = DATA.totalSemPrev ? (Number(a.atual) || 0) / DATA.totalSemPrev : 0;
+      const quando = a.saldoManual ? fmtDate(a.saldoManual.data) : `<span style="color:var(--text-muted)">planilha (${DATA.mesRefLabel})</span>`;
+      return `<tr>
+        <td class="ticker-name">${a.nome}</td>
+        <td class="tabular">${a.categoriaLabel}</td>
+        <td class="tabular">${brl(a.atual)}</td>
+        <td class="tabular">${pct(pctCarteira)}</td>
+        <td class="tabular">${quando}</td>
+        <td><button class="row-action" onclick="atualizarSaldo('${a.id}')">Atualizar saldo</button></td>
+      </tr>`;
+    }).join('') + `<tr class="totals-row">
+        <td class="ticker-name">Total</td><td></td>
+        <td class="tabular">${brl(groupTotal)}</td>
+        <td></td><td></td><td></td>
+      </tr>`;
+    return;
+  }
 
   if (conf.rendaFixa) {
     const groupTotal = conf.data.reduce((s, a) => s + valorEfetivoRendaFixa(a), 0);
