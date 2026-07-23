@@ -945,8 +945,11 @@ async function atualizarCotacoesAoVivo() {
     const encontrados = Object.keys(DATA.cotacoesAoVivo).length;
     renderAssetTable();
     recomputarTotais();
+    const hora = fmtHorario(horarioMaisRecente(DATA.cotacoesAoVivo));
     statusEl.style.color = 'var(--text-muted)';
-    statusEl.textContent = `${encontrados} de ${tickers.length} cotações atualizadas agora.` +
+    statusEl.innerHTML =
+      `<span class="stale-tag" style="color:var(--status-good);border-color:color-mix(in srgb, var(--status-good) 45%, transparent);">AO VIVO</span> ` +
+      `${encontrados} de ${tickers.length} cotações` + (hora ? ` · ${hora}` : '') +
       (falhas.length ? ` (${falhas.length} falharam)` : '');
   } catch (err) {
     console.error(err);
@@ -993,8 +996,11 @@ async function atualizarInternacionaisAoVivo() {
     });
     renderAssetTable();
     recomputarTotais();
+    const hora = fmtHorario(horarioMaisRecente(DATA.intlAoVivo));
     statusEl.style.color = 'var(--text-muted)';
-    statusEl.textContent = `${ok} de ${ativos.length} ativos atualizados agora.` +
+    statusEl.innerHTML =
+      `<span class="stale-tag" style="color:var(--status-good);border-color:color-mix(in srgb, var(--status-good) 45%, transparent);">AO VIVO</span> ` +
+      `${ok} de ${ativos.length} ativos` + (hora ? ` · ${hora}` : '') +
       (falhas.length ? ` (${falhas.length} falharam)` : '');
   } catch (err) {
     console.error(err);
@@ -1054,6 +1060,18 @@ async function atualizarTesouroAoVivo() {
 /* ---------------- Formatting helpers ---------------- */
 const brl = v => (v == null || typeof v !== 'number' || isNaN(v)) ? '—' : v.toLocaleString('pt-BR', { style:'currency', currency:'BRL' });
 const pct = v => (v == null || typeof v !== 'number' || isNaN(v)) ? '—' : (v*100).toLocaleString('pt-BR', { minimumFractionDigits:1, maximumFractionDigits:1 }) + '%';
+function fmtHorario(iso) {
+  if (!iso) return null;
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return String(iso);
+  return d.toLocaleString('pt-BR', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' });
+}
+// horário mais recente entre um conjunto de cotações ao vivo (pra mostrar ao lado do botão)
+function horarioMaisRecente(mapa) {
+  const isos = Object.values(mapa || {}).map(c => c && c.atualizadoEm).filter(Boolean);
+  if (!isos.length) return null;
+  return isos.sort().slice(-1)[0];
+}
 
 /* ---------------- Squarified treemap ---------------- */
 function squarify(items, x, y, w, h) {
@@ -1281,15 +1299,7 @@ function renderAssetTable() {
   const totalInvestido = conf.hasPm ? conf.data.reduce((s, a) => s + (a.custo != null ? a.custo : a.pm * a.qtd), 0) : null;
   groupTotalEl.innerHTML = `Total ${activeClass}: <strong>${brl(groupTotal)}</strong>`;
 
-  const horarioFmt = (iso) => {
-    if (!iso) return null;
-    const d = new Date(iso);
-    if (isNaN(d.getTime())) return String(iso);
-    return d.toLocaleString('pt-BR', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' });
-  };
-  const aoVivoBadge = ` <span class="stale-tag" style="color:var(--status-good);border-color:color-mix(in srgb, var(--status-good) 45%, transparent);">AO VIVO</span>`;
   const variacaoLinha = (v) => v != null ? `<br><span class="${v>=0?'pl-pos':'pl-neg'}" style="font-size:11px">${v>=0?'+':''}${v.toFixed(2)}% hoje</span>` : '';
-  const horarioLinha = (iso) => { const h = horarioFmt(iso); return h ? `<br><span style="font-size:10.5px;color:var(--text-muted)">${h}</span>` : ''; };
 
   body.innerHTML = conf.data.map(a => {
     const posicao = valorEfetivo(a);
@@ -1307,7 +1317,7 @@ function renderAssetTable() {
       const plClass = pl >= 0 ? 'pl-pos' : 'pl-neg';
       const cotacaoBase = a.pm != null ? a.atual / a.qtd : null;
       const cotacaoCell = (live && live.precoBRL != null)
-        ? `<span class="tabular">${brl(live.precoBRL)}</span>${aoVivoBadge}${variacaoLinha(live.variacaoPct)}${horarioLinha(live.atualizadoEm)}`
+        ? `<span class="tabular">${brl(live.precoBRL)}</span>${variacaoLinha(live.variacaoPct)}`
         : (cotacaoBase != null ? brl(cotacaoBase) : '—');
       return `<tr>
         <td class="ticker-name">${a.ticker}${staleTag}</td>
@@ -1324,7 +1334,7 @@ function renderAssetTable() {
     } else {
       // Ações internacionais: mostra cotação na moeda original e em R$ (convertida).
       const cotacaoOrigCell = (live && live.precoOrig != null)
-        ? `${live.precoOrig.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2})} ${a.moeda}${aoVivoBadge}${variacaoLinha(live.variacaoPct)}${horarioLinha(live.atualizadoEm)}`
+        ? `${live.precoOrig.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2})} ${a.moeda}${variacaoLinha(live.variacaoPct)}`
         : `<span style="color:var(--text-muted)">—</span>`;
       const cotacaoRS = (live && live.precoBRL != null) ? live.precoBRL : (posicao / a.qtd);
       return `<tr>
