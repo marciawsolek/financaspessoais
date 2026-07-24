@@ -431,7 +431,7 @@
     <div class="section-head"><h2>Simulador de metas e aportes</h2></div>
     <div class="sim-grid">
       <div class="card sim-card">
-        <div class="sim-titulo">Patrimônio → <span id="simMetaPatrimonio"></span></div>
+        <div class="sim-titulo">Meta → <span id="simMetaPatrimonio"></span></div>
         <div class="sim-inputs">
           <label>Aporte por mês (R$)
             <input type="number" id="simAporte" step="100" min="0" value="5000" oninput="renderSimulador()">
@@ -761,6 +761,7 @@ async function loadAllData() {
       return {
         id: p.ativo_id, ticker: p.ticker, nome: p.nome,
         pm: calc.pm, qtd: calc.qtd, custo: calc.custo, atual,
+        qtdBase, custoBase, // posição inicial, pra recalcular o lucro de cada venda (imposto)
         moeda: p.moeda_original, mes: mesLabel(p.mes_referencia),
         ops, realizado: calc.realizado,
       };
