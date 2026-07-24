@@ -445,7 +445,7 @@
       </div>
 
       <div class="card sim-card">
-        <div class="sim-titulo">Renda passiva → R$ 10.000/mês</div>
+        <div class="sim-titulo">Renda passiva → <span id="simMetaDividendos"></span> <button class="row-action" onclick="editarMetaDividendos()" style="margin-left:6px;">editar</button></div>
         <div class="sim-resultado" id="simRendaResultado"></div>
         <div class="sim-nota" id="simRendaNota"></div>
       </div>
@@ -456,7 +456,7 @@
   <section>
     <div class="section-head">
       <h2>Dividendos por mês</h2>
-      <span style="font-size:12px;color:var(--text-muted)">meta: R$ 10.000/mês (fora de escala — valor atual ainda distante da meta)</span>
+      <span style="font-size:12px;color:var(--text-muted)" id="divChartMetaLabel"></span>
     </div>
     <div class="card">
       <div id="divChart" class="div-chart"></div>
@@ -713,7 +713,7 @@ async function loadAllData() {
       sb.from('v_renda_fixa_atual').select('*'),
       sb.from('v_patrimonio_mensal').select('*').order('mes_referencia'),
       sb.from('v_proventos_mensal').select('*').order('mes_referencia'),
-      sb.from('metas').select('*').eq('tipo', 'patrimonio').limit(1),
+      sb.from('metas').select('*'),
       sb.from('alertas').select('chave').eq('lido', true).not('chave', 'is', null),
       sb.from('operacoes').select('*').order('data'),
       sb.from('saldos_manuais').select('*').order('data', { ascending: false }).order('criado_em', { ascending: false }),
@@ -727,7 +727,8 @@ async function loadAllData() {
 
     const posicoes = posRes.data, rendaFixaRows = rfRes.data;
     const patrimonio = patRes.data, proventos = provRes.data;
-    const metaRow = metaRes.data[0];
+    const metaRow = metaRes.data.find(m => m.tipo === 'patrimonio');
+    const metaDivRow = metaRes.data.find(m => m.tipo === 'dividendos');
     const dismissedKeys = new Set(dismissRes.data.map(r => r.chave));
 
     const opsPorAtivo = {};
@@ -817,6 +818,7 @@ async function loadAllData() {
       }),
       dividendosMensais: proventos.map(p => ({ mes: mesLabel(p.mes_referencia), valor: p.total })),
       meta: metaRow ? { id: metaRow.id, valor: metaRow.valor_alvo } : { id: null, valor: 2000000 },
+      metaDividendos: metaDivRow ? { id: metaDivRow.id, valor: metaDivRow.valor_alvo } : { id: null, valor: 10000 },
       dismissedAlertKeys: dismissedKeys,
       cotacoesAoVivo: cotacoesAoVivoAnteriores || {},
       tesouroAoVivo: tesouroAoVivoAnterior || {},
@@ -1124,6 +1126,23 @@ async function editarMeta() {
   } else {
     const { data: { user } } = await sb.auth.getUser();
     ({ error: err } = await sb.from('metas').insert({ user_id: user.id, nome: 'Independência financeira', valor_alvo: valor, tipo: 'patrimonio' }));
+  }
+  if (err) { alert('Erro ao salvar meta: ' + err.message); return; }
+  await loadAllData();
+}
+
+async function editarMetaDividendos() {
+  const atual = DATA.metaDividendos.valor;
+  const novo = prompt('Nova meta de dividendos por mês (R$):', atual);
+  if (novo === null) return;
+  const valor = parseFloat(novo.replace(/\./g, '').replace(',', '.'));
+  if (isNaN(valor) || valor <= 0) { alert('Valor inválido.'); return; }
+  let err;
+  if (DATA.metaDividendos.id) {
+    ({ error: err } = await sb.from('metas').update({ valor_alvo: valor }).eq('id', DATA.metaDividendos.id));
+  } else {
+    const { data: { user } } = await sb.auth.getUser();
+    ({ error: err } = await sb.from('metas').insert({ user_id: user.id, nome: 'Renda passiva', valor_alvo: valor, tipo: 'dividendos' }));
   }
   if (err) { alert('Erro ao salvar meta: ' + err.message); return; }
   await loadAllData();
@@ -1678,8 +1697,9 @@ function renderDivChart() {
     </div>`;
   }).join('');
   const ultimo = meses[meses.length - 1];
-  const metaMensal = 10000;
-  document.getElementById('divTileLabel').textContent = `Dividendos ${ultimo.mes} · meta R$ 10 mil/mês`;
+  const metaMensal = DATA.metaDividendos.valor;
+  document.getElementById('divChartMetaLabel').textContent = `meta: ${brl(metaMensal)}/mês (fora de escala — valor atual ainda distante da meta)`;
+  document.getElementById('divTileLabel').textContent = `Dividendos ${ultimo.mes} · meta ${brl(metaMensal)}/mês`;
   document.getElementById('divTileValue').textContent = brl(ultimo.valor);
   document.getElementById('divTileFill').style.width = Math.min((ultimo.valor/metaMensal)*100, 100).toFixed(1) + '%';
   document.getElementById('divTileSub').textContent = `${pct(ultimo.valor/metaMensal)} da meta mensal — ver histórico completo abaixo`;
@@ -1738,8 +1758,9 @@ function renderSimulador() {
     notaPat.textContent = `Faltam ${brl(falta)}. Ajuste o aporte e o retorno pra ver quanto muda.`;
   }
 
-  // --- Renda passiva (R$ 10 mil/mês em dividendos) ---
-  const metaRenda = 10000;
+  // --- Renda passiva (meta de dividendos/mês, editável) ---
+  const metaRenda = DATA.metaDividendos.valor;
+  document.getElementById('simMetaDividendos').textContent = `${brl(metaRenda)}/mês`;
   const meses = DATA.dividendosMensais || [];
   const ultimos = meses.slice(-6);
   const divMedio = ultimos.length ? ultimos.reduce((s, d) => s + d.valor, 0) / ultimos.length : 0;
@@ -1747,24 +1768,26 @@ function renderSimulador() {
   const baseGeradora = [...DATA.FII, ...DATA.BR].reduce((s, a) => s + valorEfetivo(a), 0)
     + DATA.INTL.reduce((s, a) => s + valorEfetivo(a), 0);
   const yieldMensal = baseGeradora > 0 ? divMedio / baseGeradora : 0;
+  // rendimento médio que precisaria sobre o patrimônio TOTAL atual (sem previdência) pra bater a meta
+  const pctNecessarioPatrimonio = P > 0 ? metaRenda / P : 0;
   const resRenda = document.getElementById('simRendaResultado');
   const notaRenda = document.getElementById('simRendaNota');
 
+  const abertura = `Pra chegar a <strong>${brl(metaRenda)}/mês</strong> com o patrimônio atual de ${brl(P)}, você precisaria de um rendimento médio de <span class="destaque">${pct(pctNecessarioPatrimonio)} ao mês</span> em dividendos.`;
+
   if (yieldMensal <= 0) {
-    resRenda.innerHTML = `<span class="destaque">—</span>Sem dividendos suficientes pra estimar. Registre os proventos pra ativar este cálculo.`;
-    notaRenda.textContent = '';
+    resRenda.innerHTML = abertura;
+    notaRenda.textContent = 'Sem dividendos suficientes pra estimar o rendimento efetivo ainda — registre os proventos pra ativar essa comparação.';
   } else {
     const baseNecessaria = metaRenda / yieldMensal;
     const faltaInvestir = Math.max(0, baseNecessaria - baseGeradora);
     const pctMeta = Math.min(divMedio / metaRenda, 1);
     // tempo pra acumular a base necessária em ativos de dividendos, com o mesmo aporte+retorno
     const nRenda = mesesParaMeta(baseGeradora, baseNecessaria, aporte, r);
-    resRenda.innerHTML =
-      `Hoje você recebe <strong>${brl(divMedio)}/mês</strong> (média 6 meses) — <strong>${pct(pctMeta)}</strong> da meta.` +
-      `<span class="destaque">${brl(faltaInvestir)}</span>` +
-      `<span style="font-size:12.5px;color:var(--text-secondary)">é quanto falta investir em ativos de dividendos pra chegar aos R$ 10 mil/mês</span>`;
-    notaRenda.innerHTML = `Rendimento atual: <strong>${(yieldMensal*100).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2})}% ao mês</strong> sobre ${brl(baseGeradora)} em FIIs e ações. ` +
-      (isFinite(nRenda) ? `No aporte atual, você atinge esse valor em ~${fmtDuracao(nRenda)}.` : '');
+    resRenda.innerHTML = abertura;
+    notaRenda.innerHTML = `Hoje você recebe <strong>${brl(divMedio)}/mês</strong> (média 6 meses) — rendimento efetivo de <strong>${(yieldMensal*100).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2})}% ao mês</strong> sobre ${brl(baseGeradora)} em FIIs e ações (${pct(pctMeta)} da meta). ` +
+      `Faltam ${brl(faltaInvestir)} investidos em ativos de dividendos pra chegar lá nesse ritmo` +
+      (isFinite(nRenda) ? ` — ~${fmtDuracao(nRenda)} no aporte informado.` : '.');
   }
 }
 
