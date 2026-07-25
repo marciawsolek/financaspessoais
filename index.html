@@ -175,6 +175,7 @@
   }
   .badge.good { color: var(--status-good); background: color-mix(in srgb, var(--status-good) 12%, transparent); }
   .badge.progress { color: var(--series-1); background: color-mix(in srgb, var(--series-1) 12%, transparent); }
+  .badge.warning { color: var(--status-critical); background: color-mix(in srgb, var(--status-critical) 12%, transparent); }
   .meta-sub { font-size: 12px; color: var(--text-muted); margin-top: 8px; }
   .progress-track {
     height: 6px; border-radius: 999px; background: var(--gridline); margin-top: 10px; overflow:hidden;
@@ -452,6 +453,22 @@
     </div>
   </section>
 
+  <!-- Imposto de renda sobre vendas -->
+  <section>
+    <div class="section-head"><h2>Imposto de renda (vendas)</h2></div>
+    <div class="card">
+      <div style="font-size:12.5px;color:var(--text-muted);margin-bottom:10px;line-height:1.5">
+        Estimativa com base nas operações de venda lançadas no sistema. Ações BR: isentas até R$ 20.000 vendidos/mês
+        (acima disso, 15% sobre o lucro do mês). FIIs: 20% sobre o lucro, sem isenção. Cripto: isenta até R$ 35.000
+        vendidos/mês. Ações internacionais seguem regra de ganho de capital no exterior — aqui é uma simplificação
+        (15% flat), não a tabela progressiva real. Prejuízo de um mês não compensa lucro de outro neste cálculo.
+        <strong>Não substitui orientação de um contador.</strong>
+      </div>
+      <div id="irResumo" style="margin-bottom:10px"></div>
+      <div id="irTabelaWrap"></div>
+    </div>
+  </section>
+
   <!-- Monthly dividends -->
   <section>
     <div class="section-head">
@@ -702,6 +719,77 @@ function aplicarOperacoes(qtdBase, custoBase, ops) {
   }
   if (qtd <= 0) { qtd = 0; custo = 0; }
   return { qtd, custo, pm: qtd > 0 ? custo / qtd : null, realizado };
+}
+
+// Mesma lógica de aplicarOperacoes, mas devolve cada venda individualmente
+// (data, valor vendido, lucro) — necessário pra apurar IR por mês/categoria.
+function calcularVendasComLucro(qtdBase, custoBase, ops) {
+  let qtd = Number(qtdBase) || 0;
+  let custo = Number(custoBase) || 0;
+  const vendas = [];
+  const ordenadas = [...(ops || [])].sort((a, b) => String(a.data).localeCompare(String(b.data)));
+  for (const op of ordenadas) {
+    const q = Number(op.quantidade) || 0;
+    const p = Number(op.preco_unitario) || 0;
+    const t = Number(op.taxas) || 0;
+    if (op.tipo === 'compra') {
+      custo += q * p + t;
+      qtd += q;
+    } else {
+      const pmAtual = qtd > 0 ? custo / qtd : 0;
+      const qVenda = Math.min(q, qtd);
+      const valorVenda = qVenda * p - t;
+      const lucro = valorVenda - qVenda * pmAtual;
+      vendas.push({ data: op.data, valorVenda, lucro });
+      custo -= qVenda * pmAtual;
+      qtd -= qVenda;
+    }
+  }
+  return vendas;
+}
+
+// Regras de isenção/alíquota por categoria — B3 (ações BR e FIIs) e cripto.
+// Ações internacionais seguem ganho de capital no exterior (tabela progressiva 15–22,5%,
+// Lei 14.754/2023); aqui é tratado de forma simplificada (15% flat, sem isenção) só
+// como referência — consulte um contador pra apuração real desses casos.
+const REGRAS_IR = {
+  'FII':        { nome: 'FIIs',              isencaoMensal: 0,     aliquota: 0.20 },
+  'Acao BR':    { nome: 'Ações BR',          isencaoMensal: 20000, aliquota: 0.15 },
+  'Cripto':     { nome: 'Cripto',            isencaoMensal: 35000, aliquota: 0.15 },
+  'Acao Intl':  { nome: 'Ações internacionais (estimativa)', isencaoMensal: 0, aliquota: 0.15 },
+};
+
+// Agrupa todas as vendas (FII/BR/Cripto/Intl) por mês+categoria e aplica a
+// regra de isenção/alíquota de cada uma. Só considera lucro (prejuízo não gera DARF,
+// mas isso não compensa prejuízo de meses anteriores — cálculo simplificado).
+function calcularImpostoRenda() {
+  const porMesCategoria = {};
+  const processar = (lista, categoria) => {
+    (lista || []).forEach(a => {
+      calcularVendasComLucro(a.qtdBase, a.custoBase, a.ops).forEach(v => {
+        if (!v.data) return;
+        const chaveMes = v.data.slice(0, 7); // YYYY-MM
+        const chave = `${chaveMes}|${categoria}`;
+        if (!porMesCategoria[chave]) porMesCategoria[chave] = { mes: chaveMes, categoria, vendido: 0, lucro: 0 };
+        porMesCategoria[chave].vendido += v.valorVenda;
+        porMesCategoria[chave].lucro += v.lucro;
+      });
+    });
+  };
+  processar(DATA.FII, 'FII');
+  processar(DATA.BR, 'Acao BR');
+  processar(DATA.CRYPTO, 'Cripto');
+  processar(DATA.INTL, 'Acao Intl');
+
+  const linhas = Object.values(porMesCategoria).map(item => {
+    const regra = REGRAS_IR[item.categoria];
+    const isento = item.vendido <= regra.isencaoMensal;
+    const aliquota = (!isento && item.lucro > 0) ? regra.aliquota : 0;
+    const imposto = (!isento && item.lucro > 0) ? item.lucro * regra.aliquota : 0;
+    return { ...item, nomeCategoria: regra.nome, isento, aliquota, imposto };
+  });
+  linhas.sort((a, b) => b.mes.localeCompare(a.mes) || a.categoria.localeCompare(b.categoria));
+  return linhas;
 }
 
 async function loadAllData() {
@@ -1791,6 +1879,41 @@ function renderSimulador() {
   }
 }
 
+function renderImpostoRenda() {
+  const wrap = document.getElementById('irTabelaWrap');
+  const resumoEl = document.getElementById('irResumo');
+  if (!wrap || !resumoEl) return;
+  const linhas = calcularImpostoRenda();
+
+  if (!linhas.length) {
+    resumoEl.innerHTML = '';
+    wrap.innerHTML = `<div style="font-size:13px;color:var(--text-muted)">Nenhuma venda lançada ainda — assim que você registrar uma venda em Ações, FIIs ou Cripto, o cálculo aparece aqui.</div>`;
+    return;
+  }
+
+  const totalDevido = linhas.reduce((s, l) => s + l.imposto, 0);
+  const mesesComImposto = linhas.filter(l => l.imposto > 0).length;
+  resumoEl.innerHTML = totalDevido > 0
+    ? `<span class="badge warning">DARF total estimado: ${brl(totalDevido)}</span> em ${mesesComImposto} ${mesesComImposto === 1 ? 'mês' : 'meses'} com imposto devido.`
+    : `<span class="badge good">&check; Nenhum imposto devido nas vendas registradas até agora.</span>`;
+
+  wrap.innerHTML = `
+    <table class="ir-table">
+      <thead><tr><th>Mês</th><th>Categoria</th><th>Vendido</th><th>Lucro/Prejuízo</th><th>Situação</th><th>Imposto (DARF)</th></tr></thead>
+      <tbody>
+        ${linhas.map(l => `
+          <tr>
+            <td>${mesLabel(l.mes)}</td>
+            <td>${l.nomeCategoria}</td>
+            <td class="tabular">${brl(l.vendido)}</td>
+            <td class="tabular ${l.lucro >= 0 ? 'pl-pos' : 'pl-neg'}">${brl(l.lucro)}</td>
+            <td>${l.isento ? 'Isento' : (l.imposto > 0 ? `Tributável (${(l.aliquota*100).toFixed(1)}%)` : 'Sem imposto (prejuízo)')}</td>
+            <td class="tabular">${l.imposto > 0 ? brl(l.imposto) : '—'}</td>
+          </tr>`).join('')}
+      </tbody>
+    </table>`;
+}
+
 function renderPatrimonioTiles() {
   const setTile = (valId, deltaId, total, delta) => {
     document.getElementById(valId).textContent = brl(total);
@@ -1857,6 +1980,7 @@ function renderAll() {
   renderVencimentos();
   renderDivChart();
   renderSimulador();
+  renderImpostoRenda();
   renderAlerts();
 }
 window.addEventListener('resize', () => { if (DATA && document.getElementById('dash').style.display === 'block') renderTreemap(); });
