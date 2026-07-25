@@ -594,6 +594,22 @@
     </div>
   </section>
 
+  <!-- Análise fundamentalista -->
+  <section>
+    <div class="section-head"><h2>Análise fundamentalista (Ações BR)</h2></div>
+    <div class="card">
+      <div style="font-size:12.5px;color:var(--text-muted);margin-bottom:12px;line-height:1.5">
+        ROE, ROA e crescimento de lucro calculados a partir dos dados oficiais da CVM (DFP, demonstrações
+        financeiras anuais). O "score" é só uma contagem simples de indicadores em patamar saudável — não é
+        uma nota sofisticada nem uma recomendação de compra/venda. Bancos e seguradoras têm naturalmente ROA
+        mais baixo e alavancagem mais alta que empresas industriais só pela natureza do negócio — compare
+        dentro do mesmo setor, não entre setores diferentes. Cobre só Ações BR (FIIs e ações internacionais
+        não têm essa base de dados ainda).
+      </div>
+      <div id="fundamentosTabelaWrap"></div>
+    </div>
+  </section>
+
   <!-- Renda fixa + Alerts -->
   <section>
     <div class="two-col">
@@ -875,7 +891,7 @@ async function loadAllData(tentativa = 1) {
   const errEl = document.getElementById('loadError');
   errEl.style.display = 'none';
   try {
-    const [posRes, rfRes, patRes, provRes, metaRes, dismissRes, opsRes, saldosRes, movRfRes] = await Promise.all([
+    const [posRes, rfRes, patRes, provRes, metaRes, dismissRes, opsRes, saldosRes, movRfRes, fundRes] = await Promise.all([
       sb.from('v_posicao_atual').select('*'),
       sb.from('v_renda_fixa_atual').select('*'),
       sb.from('v_patrimonio_mensal').select('*').order('mes_referencia'),
@@ -885,12 +901,14 @@ async function loadAllData(tentativa = 1) {
       sb.from('operacoes').select('*').order('data'),
       sb.from('saldos_manuais').select('*').order('data', { ascending: false }).order('criado_em', { ascending: false }),
       sb.from('movimentacoes_rf').select('*').order('data'),
+      sb.from('fundamentos_acoes').select('*'),
     ]);
     for (const r of [posRes, rfRes, patRes, provRes, metaRes, dismissRes]) if (r.error) throw r.error;
-    // operacoes/saldos/movimentacoes são opcionais: se a tabela ainda não existir, segue sem ela em vez de travar tudo
+    // operacoes/saldos/movimentacoes/fundamentos são opcionais: se a tabela ainda não existir, segue sem ela em vez de travar tudo
     if (opsRes.error) console.warn('Tabela operacoes indisponível (rode supabase/operacoes.sql):', opsRes.error.message);
     if (saldosRes.error) console.warn('Tabela saldos_manuais indisponível (rode supabase/saldos_manuais.sql):', saldosRes.error.message);
     if (movRfRes.error) console.warn('Tabela movimentacoes_rf indisponível (rode supabase/movimentacoes_rf.sql):', movRfRes.error.message);
+    if (fundRes.error) console.warn('Tabela fundamentos_acoes indisponível (rode supabase/fundamentos_acoes.sql):', fundRes.error.message);
 
     const posicoes = posRes.data, rendaFixaRows = rfRes.data;
     const patrimonio = patRes.data, proventos = provRes.data;
@@ -986,6 +1004,7 @@ async function loadAllData(tentativa = 1) {
       dividendosMensais: proventos.map(p => ({ mes: mesLabel(p.mes_referencia), valor: p.total })),
       meta: metaRow ? { id: metaRow.id, valor: metaRow.valor_alvo } : { id: null, valor: 2000000 },
       metaDividendos: metaDivRow ? { id: metaDivRow.id, valor: metaDivRow.valor_alvo } : { id: null, valor: 10000 },
+      FUNDAMENTOS: fundRes.error ? [] : (fundRes.data || []),
       dismissedAlertKeys: dismissedKeys,
       cotacoesAoVivo: cotacoesAoVivoAnteriores || {},
       tesouroAoVivo: tesouroAoVivoAnterior || {},
@@ -1859,6 +1878,54 @@ function renderRiscoCarteira() {
     </table>`;
 }
 
+/* ---------------- Análise fundamentalista (dados da CVM, sem IA) ---------------- */
+
+// ROE, ROA e crescimento de lucro a partir do DFP anual (supabase/fundamentos_acoes.sql).
+// Score simples e transparente (0-3): não é uma nota ponderada, só conta quantos indicadores
+// estão em patamar saudável — evita fingir precisão que os dados brutos não sustentam.
+function calcularFundamentos(f) {
+  const roe = f.patrimonio_liquido > 0 ? f.lucro_liquido / f.patrimonio_liquido : null;
+  const roa = f.ativo_total > 0 ? f.lucro_liquido / f.ativo_total : null;
+  const crescimentoLucro = f.lucro_liquido_ant !== 0 ? (f.lucro_liquido - f.lucro_liquido_ant) / Math.abs(f.lucro_liquido_ant) : null;
+  const alavancagem = f.patrimonio_liquido > 0 ? f.ativo_total / f.patrimonio_liquido : null;
+
+  let score = 0;
+  if (roe != null && roe > 0.10) score++;
+  if (roa != null && roa > 0.03) score++;
+  if (crescimentoLucro != null && crescimentoLucro > 0) score++;
+
+  return { ticker: f.ticker, ano: f.ano_referencia, roe, roa, crescimentoLucro, alavancagem, lucroAtual: f.lucro_liquido, score };
+}
+
+function renderFundamentos() {
+  const el = document.getElementById('fundamentosTabelaWrap');
+  if (!el || !DATA) return;
+  const lista = DATA.FUNDAMENTOS || [];
+  if (!lista.length) {
+    el.innerHTML = `<div style="font-size:13px;color:var(--text-muted)">Nenhum dado fundamentalista carregado ainda — rode supabase/fundamentos_acoes.sql.</div>`;
+    return;
+  }
+  const linhas = lista.map(calcularFundamentos).sort((a, b) => b.score - a.score || (b.roe ?? -1) - (a.roe ?? -1));
+
+  el.innerHTML = `
+    <table>
+      <thead><tr><th>Ativo</th><th>Ano</th><th>Lucro líquido</th><th>Cresc. lucro (a/a)</th><th>ROE</th><th>ROA</th><th>Ativo/PL</th><th>Score</th></tr></thead>
+      <tbody>
+        ${linhas.map(l => `
+          <tr>
+            <td>${l.ticker}</td>
+            <td>${l.ano}</td>
+            <td class="tabular">${brl(l.lucroAtual)}</td>
+            <td class="tabular ${l.crescimentoLucro == null ? '' : (l.crescimentoLucro >= 0 ? 'pl-pos' : 'pl-neg')}">${pct(l.crescimentoLucro)}</td>
+            <td class="tabular">${pct(l.roe)}</td>
+            <td class="tabular">${pct(l.roa)}</td>
+            <td class="tabular">${l.alavancagem == null ? '—' : l.alavancagem.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + 'x'}</td>
+            <td><span class="badge ${l.score >= 2 ? 'good' : l.score === 1 ? 'moderate' : 'critical'} tight">${l.score}/3</span></td>
+          </tr>`).join('')}
+      </tbody>
+    </table>`;
+}
+
 async function atualizarTesouroAoVivo() {
   const btn = document.getElementById('btnTesouro');
   const statusEl = document.getElementById('aoVivoStatus');
@@ -2588,6 +2655,7 @@ function renderAll() {
   renderImpostoRenda();
   popularSelectAnaliseTecnica();
   renderRiscoCarteira();
+  renderFundamentos();
   renderAlerts();
   renderResumoSemanal();
 }
