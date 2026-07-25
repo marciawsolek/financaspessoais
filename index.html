@@ -176,6 +176,9 @@
   .badge.good { color: var(--status-good); background: color-mix(in srgb, var(--status-good) 12%, transparent); }
   .badge.progress { color: var(--series-1); background: color-mix(in srgb, var(--series-1) 12%, transparent); }
   .badge.warning { color: var(--status-critical); background: color-mix(in srgb, var(--status-critical) 12%, transparent); }
+  .badge.critical { color: var(--status-critical); background: color-mix(in srgb, var(--status-critical) 12%, transparent); }
+  .badge.moderate { color: var(--status-warning); background: color-mix(in srgb, var(--status-warning) 16%, transparent); }
+  .badge.tight { margin-top: 0; }
   .meta-sub { font-size: 12px; color: var(--text-muted); margin-top: 8px; }
   .progress-track {
     height: 6px; border-radius: 999px; background: var(--gridline); margin-top: 10px; overflow:hidden;
@@ -560,6 +563,22 @@
       <div id="taStatus" style="font-size:12.5px;color:var(--text-muted)"></div>
       <div id="taChartWrap" class="ta-chart-wrap"></div>
       <div id="taResultado"></div>
+    </div>
+  </section>
+
+  <!-- Risco da carteira -->
+  <section>
+    <div class="section-head"><h2>Risco da carteira</h2></div>
+    <div class="card">
+      <div style="font-size:12.5px;color:var(--text-muted);margin-bottom:12px;line-height:1.5">
+        Concentração (quanto cada posição pesa no patrimônio total, incluindo FGTS/Imobilizado) e volatilidade
+        histórica anualizada dos ativos com cotação de mercado. São medidas estatísticas simples — não é
+        recomendação de comprar, vender ou rebalancear.
+      </div>
+      <div id="riscoResumo" style="margin-bottom:12px"></div>
+      <button class="row-action" id="btnRiscoVol" onclick="atualizarVolatilidadeRisco()">Calcular volatilidade</button>
+      <span id="riscoVolStatus" style="font-size:12px;color:var(--text-muted);margin-left:8px"></span>
+      <div id="riscoTabelaWrap" style="margin-top:12px"></div>
     </div>
   </section>
 
@@ -1689,6 +1708,144 @@ function renderAnaliseTecnica({ ticker, moeda, ultimoPreco, ultimaData, sma20, s
     ${fibHtml}`;
 }
 
+/* ---------------- Risco da carteira (concentração + volatilidade) ---------------- */
+
+// Junta todos os componentes do patrimônio (inclusive FGTS/Imobilizado, que ficam de
+// fora do total "oficial" das outras seções) numa lista só, com o peso % de cada um.
+function coletarPosicoesRisco() {
+  const linhas = [];
+  const add = (lista, categoria, valorFn) => (lista || []).forEach(a => {
+    const valor = valorFn(a);
+    if (valor > 0) linhas.push({ ticker: a.ticker, categoria, valor, temHistorico: true });
+  });
+  add(DATA.FII, 'FII', valorEfetivo);
+  add(DATA.BR, 'Acao BR', valorEfetivo);
+  add(DATA.INTL, 'Acao Intl', valorEfetivo);
+  add(DATA.CRYPTO, 'Cripto', valorEfetivo);
+  (DATA.RENDA_FIXA || []).forEach(a => {
+    const valor = valorEfetivoRendaFixa(a);
+    if (valor > 0) linhas.push({ ticker: a.nome, categoria: 'Renda Fixa', valor, temHistorico: false });
+  });
+  (DATA.SALDOS || []).forEach(a => {
+    const valor = Number(a.atual) || 0;
+    if (valor > 0) linhas.push({ ticker: a.nome, categoria: a.categoriaLabel, valor, temHistorico: false });
+  });
+  const total = linhas.reduce((s, l) => s + l.valor, 0);
+  linhas.forEach(l => { l.peso = total > 0 ? l.valor / total : 0; });
+  linhas.sort((a, b) => b.valor - a.valor);
+  return { linhas, total };
+}
+
+// Índice Herfindahl-Hirschman (soma dos pesos ao quadrado) — 0 = totalmente
+// diversificada, 1 = tudo num ativo só. Faixas adaptadas do uso convencional em antitruste.
+function calcularHHI(linhas) {
+  return linhas.reduce((s, l) => s + l.peso * l.peso, 0);
+}
+function classificarHHI(hhi) {
+  if (hhi < 0.15) return { label: 'Diversificada', badge: 'good' };
+  if (hhi < 0.25) return { label: 'Moderadamente concentrada', badge: 'moderate' };
+  return { label: 'Concentrada', badge: 'critical' };
+}
+
+// Volatilidade anualizada a partir do desvio-padrão dos retornos diários (√252 pregões/ano).
+function calcularVolatilidadeAnualizada(closes) {
+  if (!closes || closes.length < 30) return null;
+  const retornos = [];
+  for (let i = 1; i < closes.length; i++) retornos.push((closes[i] - closes[i - 1]) / closes[i - 1]);
+  const media = retornos.reduce((s, v) => s + v, 0) / retornos.length;
+  const variancia = retornos.reduce((s, v) => s + (v - media) ** 2, 0) / (retornos.length - 1);
+  return Math.sqrt(variancia) * Math.sqrt(252);
+}
+
+function alertasPosicaoRisco(peso, vol) {
+  const alerts = [];
+  if (peso >= 0.20) alerts.push({ label: 'Concentração alta', nivel: 'critical' });
+  else if (peso >= 0.10) alerts.push({ label: 'Concentração moderada', nivel: 'moderate' });
+  if (vol != null && vol >= 0.40) alerts.push({ label: 'Alta volatilidade', nivel: 'moderate' });
+  return alerts;
+}
+
+async function atualizarVolatilidadeRisco() {
+  const btn = document.getElementById('btnRiscoVol');
+  const statusEl = document.getElementById('riscoVolStatus');
+  const alvos = [
+    ...DATA.FII.map(a => ({ ticker: a.ticker, categoria: 'FII' })),
+    ...DATA.BR.map(a => ({ ticker: a.ticker, categoria: 'Acao BR' })),
+    ...DATA.INTL.map(a => ({ ticker: a.ticker, categoria: 'Acao Intl' })),
+    ...DATA.CRYPTO.map(a => ({ ticker: a.ticker, categoria: 'Cripto' })),
+  ];
+  if (!alvos.length) { statusEl.textContent = 'Nenhum ativo com preço de mercado pra calcular.'; return; }
+
+  btn.disabled = true; btn.textContent = 'Calculando…';
+  statusEl.style.color = 'var(--text-muted)';
+  statusEl.textContent = '';
+  try {
+    const resultados = await Promise.all(alvos.map(async (a) => {
+      try {
+        const symbol = yahooSymbolPara(a.categoria, a.ticker);
+        const { precos } = await buscarHistorico(symbol, '1y');
+        return { ticker: a.ticker, vol: calcularVolatilidadeAnualizada(precos.map(p => p.fechamento)) };
+      } catch (e) {
+        return { ticker: a.ticker, vol: null };
+      }
+    }));
+    DATA.volatilidade = {};
+    resultados.forEach(r => { DATA.volatilidade[r.ticker] = r.vol; });
+    const ok = resultados.filter(r => r.vol != null).length;
+    statusEl.textContent = `Volatilidade calculada para ${ok} de ${alvos.length} ativos.`;
+    renderRiscoCarteira();
+  } catch (err) {
+    console.error(err);
+    statusEl.textContent = 'Erro: ' + err.message;
+    statusEl.style.color = 'var(--status-critical)';
+  } finally {
+    btn.disabled = false; btn.textContent = 'Calcular volatilidade';
+  }
+}
+
+function renderRiscoCarteira() {
+  const resumoEl = document.getElementById('riscoResumo');
+  const tabelaEl = document.getElementById('riscoTabelaWrap');
+  if (!resumoEl || !tabelaEl || !DATA) return;
+  const { linhas } = coletarPosicoesRisco();
+  if (!linhas.length) {
+    resumoEl.innerHTML = '';
+    tabelaEl.innerHTML = `<div style="font-size:13px;color:var(--text-muted)">Nenhuma posição encontrada.</div>`;
+    return;
+  }
+
+  const hhi = calcularHHI(linhas);
+  const classe = classificarHHI(hhi);
+  const nConcentrados = linhas.filter(l => l.peso >= 0.10).length;
+  resumoEl.innerHTML = `
+    <span class="badge ${classe.badge} tight">${classe.label} · índice de concentração ${(hhi * 100).toFixed(1)}</span>
+    <div style="font-size:12.5px;color:var(--text-muted);margin-top:6px">
+      ${nConcentrados} ${nConcentrados === 1 ? 'posição representa' : 'posições representam'} 10% ou mais do patrimônio total sozinha(s).
+    </div>`;
+
+  const vol = DATA.volatilidade || {};
+  const volJaCalculada = Object.keys(vol).length > 0;
+  tabelaEl.innerHTML = `
+    <table>
+      <thead><tr><th>Ativo</th><th>Categoria</th><th>Valor</th><th>% carteira</th><th>Volatilidade (1a)</th><th>Alerta</th></tr></thead>
+      <tbody>
+        ${linhas.map(l => {
+          const v = l.temHistorico ? vol[l.ticker] : undefined;
+          const volTxt = !l.temHistorico ? 'n/a' : (v != null ? pct(v) : (volJaCalculada ? '—' : '· · ·'));
+          const alerts = alertasPosicaoRisco(l.peso, v);
+          return `<tr>
+            <td>${l.ticker}</td>
+            <td>${l.categoria}</td>
+            <td class="tabular">${brl(l.valor)}</td>
+            <td class="tabular ${l.peso >= 0.20 ? 'pl-neg' : ''}">${pct(l.peso)}</td>
+            <td class="tabular">${volTxt}</td>
+            <td>${alerts.map(a => `<span class="badge ${a.nivel} tight">${a.label}</span>`).join(' ') || '—'}</td>
+          </tr>`;
+        }).join('')}
+      </tbody>
+    </table>`;
+}
+
 async function atualizarTesouroAoVivo() {
   const btn = document.getElementById('btnTesouro');
   const statusEl = document.getElementById('aoVivoStatus');
@@ -2317,6 +2474,7 @@ function renderAll() {
   renderSimulador();
   renderImpostoRenda();
   popularSelectAnaliseTecnica();
+  renderRiscoCarteira();
   renderAlerts();
 }
 window.addEventListener('resize', () => { if (DATA && document.getElementById('dash').style.display === 'block') renderTreemap(); });
