@@ -545,11 +545,17 @@
         Médias móveis, RSI e Fibonacci calculados sobre o histórico diário de preços do último ano (Yahoo Finance).
         É um apoio pra observar tendência/momentum de um ativo — não é recomendação de compra ou venda.
       </div>
-      <div class="sim-inputs" style="margin-bottom:14px;align-items:flex-end">
+      <div class="sim-inputs" style="margin-bottom:6px;align-items:flex-end">
         <label style="flex:2">Ativo
           <select id="taSelect"></select>
         </label>
+        <label style="flex:1">Ou digite um ticker
+          <input type="text" id="taTickerManual" placeholder="ex: PETR4.SA, AAPL" oninput="this.value=this.value.toUpperCase()">
+        </label>
         <button class="row-action" id="btnTa" onclick="atualizarAnaliseTecnica()" style="height:38px;white-space:nowrap">Analisar</button>
+      </div>
+      <div style="font-size:11px;color:var(--text-muted);margin-bottom:14px">
+        Pra ações BR use o sufixo <strong>.SA</strong> (ex: PETR4.SA) — internacionais geralmente sem sufixo (ex: AAPL).
       </div>
       <div id="taStatus" style="font-size:12.5px;color:var(--text-muted)"></div>
       <div id="taChartWrap" class="ta-chart-wrap"></div>
@@ -1473,7 +1479,7 @@ function popularSelectAnaliseTecnica() {
   if (!sel || !DATA) return;
   const valorAnterior = sel.value;
   const grupos = [
-    ['FIIs', DATA.FII, 'FII'], ['Ações BR', DATA.BR, 'Acao BR'],
+    ['Ações BR', DATA.BR, 'Acao BR'],
     ['Ações internacionais', DATA.INTL, 'Acao Intl'], ['Cripto', DATA.CRYPTO, 'Cripto'],
   ];
   sel.innerHTML = grupos.filter(([, lista]) => lista.length).map(([label, lista, categoria]) =>
@@ -1485,12 +1491,22 @@ function popularSelectAnaliseTecnica() {
 
 async function atualizarAnaliseTecnica() {
   const sel = document.getElementById('taSelect');
+  const manualEl = document.getElementById('taTickerManual');
   const btn = document.getElementById('btnTa');
   const statusEl = document.getElementById('taStatus');
   const resultadoEl = document.getElementById('taResultado');
-  if (!sel || !sel.value) { statusEl.textContent = 'Nenhum ativo disponível para analisar.'; return; }
-  const [categoria, ticker] = sel.value.split('|');
-  const symbol = yahooSymbolPara(categoria, ticker);
+
+  const manual = (manualEl.value || '').trim();
+  let ticker, symbol;
+  if (manual) {
+    ticker = manual;
+    symbol = manual; // ticker digitado já deve vir no formato do Yahoo (com .SA se for BR)
+  } else {
+    if (!sel || !sel.value) { statusEl.textContent = 'Nenhum ativo disponível para analisar.'; return; }
+    const [categoria, tickerSel] = sel.value.split('|');
+    ticker = tickerSel;
+    symbol = yahooSymbolPara(categoria, tickerSel);
+  }
 
   btn.disabled = true; btn.textContent = 'Buscando…';
   statusEl.style.color = 'var(--text-muted)';
