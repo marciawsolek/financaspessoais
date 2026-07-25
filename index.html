@@ -330,10 +330,18 @@
   .sim-titulo { font-size: 14px; font-weight: 600; }
   .sim-inputs { display: flex; gap: 12px; flex-wrap: wrap; }
   .sim-inputs label { display: flex; flex-direction: column; gap: 5px; font-size: 12px; color: var(--text-secondary); flex: 1; min-width: 130px; }
-  .sim-inputs input {
+  .sim-inputs input, .sim-inputs select {
     padding: 9px 11px; border-radius: 9px; border: 1px solid var(--border);
     background: var(--page); color: var(--text-primary); font-size: 14px; width: 100%;
   }
+  .ta-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-top: 14px; }
+  .ta-stat { background: var(--page); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; }
+  .ta-stat .ta-label { font-size: 11.5px; color: var(--text-muted); margin-bottom: 4px; }
+  .ta-stat .ta-value { font-size: 16px; font-weight: 600; }
+  .ta-stat .ta-sub { font-size: 11.5px; margin-top: 3px; }
+  .fib-row { display:flex; justify-content:space-between; padding: 7px 0; border-bottom: 1px solid var(--gridline); font-size: 13px; }
+  .fib-row:last-child { border-bottom: none; }
+  .fib-row.fib-atual { font-weight: 600; color: var(--series-1); }
   .sim-resultado { font-size: 14px; line-height: 1.55; color: var(--text-primary); }
   .sim-resultado strong { font-weight: 600; }
   .sim-resultado .destaque { font-size: 22px; font-weight: 700; letter-spacing: -0.01em; display:block; margin: 2px 0; }
@@ -466,6 +474,25 @@
       </div>
       <div id="irResumo" style="margin-bottom:10px"></div>
       <div id="irTabelaWrap"></div>
+    </div>
+  </section>
+
+  <!-- Análise técnica -->
+  <section>
+    <div class="section-head"><h2>Análise técnica</h2></div>
+    <div class="card">
+      <div style="font-size:12.5px;color:var(--text-muted);margin-bottom:12px;line-height:1.5">
+        Médias móveis, RSI e Fibonacci calculados sobre o histórico diário de preços do último ano (Yahoo Finance).
+        É um apoio pra observar tendência/momentum de um ativo — não é recomendação de compra ou venda.
+      </div>
+      <div class="sim-inputs" style="margin-bottom:14px;align-items:flex-end">
+        <label style="flex:2">Ativo
+          <select id="taSelect"></select>
+        </label>
+        <button class="row-action" id="btnTa" onclick="atualizarAnaliseTecnica()" style="height:38px;white-space:nowrap">Analisar</button>
+      </div>
+      <div id="taStatus" style="font-size:12.5px;color:var(--text-muted)"></div>
+      <div id="taResultado"></div>
     </div>
   </section>
 
@@ -1354,6 +1381,148 @@ async function atualizarInternacionaisAoVivo() {
   }
 }
 
+/* ---------------- Análise técnica (Edge Function 'historico' -> Yahoo Finance) ---------------- */
+
+function yahooSymbolPara(categoria, ticker) {
+  if (categoria === 'FII' || categoria === 'Acao BR') return ticker + '.SA';
+  return YAHOO_SYMBOL_INTL[ticker] || ticker;
+}
+
+async function buscarHistorico(symbol, range) {
+  const { data: { session } } = await sb.auth.getSession();
+  if (!session) throw new Error('Sessão expirada — faça login de novo.');
+  const url = `${SUPABASE_URL}/functions/v1/historico?symbol=${encodeURIComponent(symbol)}&range=${range}`;
+  const res = await fetch(url, { headers: { Authorization: `Bearer ${session.access_token}` } });
+  const body = await res.json();
+  if (!res.ok || body.error) throw new Error(body.error || `Erro HTTP ${res.status}`);
+  return body; // { symbol, moeda, range, precos: [{data, fechamento}] }
+}
+
+function calcularSMA(closes, periodo) {
+  if (closes.length < periodo) return null;
+  const fatia = closes.slice(-periodo);
+  return fatia.reduce((s, v) => s + v, 0) / periodo;
+}
+
+// RSI de Wilder (14 períodos por padrão).
+function calcularRSI(closes, periodo = 14) {
+  if (closes.length < periodo + 1) return null;
+  let ganhoMedio = 0, perdaMedio = 0;
+  for (let i = 1; i <= periodo; i++) {
+    const diff = closes[i] - closes[i - 1];
+    if (diff >= 0) ganhoMedio += diff; else perdaMedio -= diff;
+  }
+  ganhoMedio /= periodo; perdaMedio /= periodo;
+  for (let i = periodo + 1; i < closes.length; i++) {
+    const diff = closes[i] - closes[i - 1];
+    const ganho = diff > 0 ? diff : 0;
+    const perda = diff < 0 ? -diff : 0;
+    ganhoMedio = (ganhoMedio * (periodo - 1) + ganho) / periodo;
+    perdaMedio = (perdaMedio * (periodo - 1) + perda) / periodo;
+  }
+  if (perdaMedio === 0) return 100;
+  const rs = ganhoMedio / perdaMedio;
+  return 100 - 100 / (1 + rs);
+}
+
+// Retração de Fibonacci sobre a máxima/mínima do período buscado.
+function calcularFibonacci(closes) {
+  const max = Math.max(...closes), min = Math.min(...closes);
+  const diff = max - min;
+  const niveis = [0, 0.236, 0.382, 0.5, 0.618, 0.786, 1].map(p => ({ pct: p, valor: max - diff * p }));
+  return { max, min, niveis };
+}
+
+function popularSelectAnaliseTecnica() {
+  const sel = document.getElementById('taSelect');
+  if (!sel || !DATA) return;
+  const valorAnterior = sel.value;
+  const grupos = [
+    ['FIIs', DATA.FII, 'FII'], ['Ações BR', DATA.BR, 'Acao BR'],
+    ['Ações internacionais', DATA.INTL, 'Acao Intl'], ['Cripto', DATA.CRYPTO, 'Cripto'],
+  ];
+  sel.innerHTML = grupos.filter(([, lista]) => lista.length).map(([label, lista, categoria]) =>
+    `<optgroup label="${label}">${lista.map(a =>
+      `<option value="${categoria}|${a.ticker}">${a.ticker}</option>`).join('')}</optgroup>`
+  ).join('');
+  if (valorAnterior && [...sel.options].some(o => o.value === valorAnterior)) sel.value = valorAnterior;
+}
+
+async function atualizarAnaliseTecnica() {
+  const sel = document.getElementById('taSelect');
+  const btn = document.getElementById('btnTa');
+  const statusEl = document.getElementById('taStatus');
+  const resultadoEl = document.getElementById('taResultado');
+  if (!sel || !sel.value) { statusEl.textContent = 'Nenhum ativo disponível para analisar.'; return; }
+  const [categoria, ticker] = sel.value.split('|');
+  const symbol = yahooSymbolPara(categoria, ticker);
+
+  btn.disabled = true; btn.textContent = 'Buscando…';
+  statusEl.style.color = 'var(--text-muted)';
+  statusEl.textContent = '';
+  try {
+    const { moeda, precos } = await buscarHistorico(symbol, '1y');
+    const closes = precos.map(p => p.fechamento);
+    const ultimoPreco = closes[closes.length - 1];
+    const ultimaData = precos[precos.length - 1].data;
+    const sma20 = calcularSMA(closes, 20), sma50 = calcularSMA(closes, 50), sma200 = calcularSMA(closes, 200);
+    const rsi = calcularRSI(closes, 14);
+    const fib = calcularFibonacci(closes);
+    renderAnaliseTecnica({ ticker, moeda, ultimoPreco, ultimaData, sma20, sma50, sma200, rsi, fib, nPontos: closes.length });
+    statusEl.textContent = `${closes.length} pregões no último ano · atualizado ${fmtDate(ultimaData)}`;
+  } catch (err) {
+    console.error(err);
+    resultadoEl.innerHTML = '';
+    statusEl.textContent = 'Erro: ' + err.message;
+    statusEl.style.color = 'var(--status-critical)';
+  } finally {
+    btn.disabled = false; btn.textContent = 'Analisar';
+  }
+}
+
+function renderAnaliseTecnica({ ticker, moeda, ultimoPreco, ultimaData, sma20, sma50, sma200, rsi, fib, nPontos }) {
+  const el = document.getElementById('taResultado');
+  const fmtPreco = (v) => v == null ? '—' : v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + (moeda ? ` ${moeda}` : '');
+
+  const smaLinha = (label, sma) => {
+    if (sma == null) return `<div class="ta-stat"><div class="ta-label">${label}</div><div class="ta-value">—</div><div class="ta-sub" style="color:var(--text-muted)">histórico insuficiente</div></div>`;
+    const acima = ultimoPreco >= sma;
+    const diffPct = (ultimoPreco - sma) / sma;
+    return `<div class="ta-stat"><div class="ta-label">${label}</div><div class="ta-value">${fmtPreco(sma)}</div>
+      <div class="ta-sub ${acima ? 'pl-pos' : 'pl-neg'}">Preço ${acima ? 'acima' : 'abaixo'} (${pct(Math.abs(diffPct))})</div></div>`;
+  };
+
+  const rsiHtml = (() => {
+    if (rsi == null) return `<div class="ta-stat"><div class="ta-label">RSI (14)</div><div class="ta-value">—</div><div class="ta-sub" style="color:var(--text-muted)">histórico insuficiente</div></div>`;
+    let classe = 'Neutro', cor = 'color:var(--text-secondary)';
+    if (rsi >= 70) { classe = 'Sobrecomprado'; cor = 'color:var(--status-critical)'; }
+    else if (rsi <= 30) { classe = 'Sobrevendido'; cor = 'color:var(--status-good)'; }
+    return `<div class="ta-stat"><div class="ta-label">RSI (14)</div><div class="ta-value">${rsi.toFixed(1)}</div><div class="ta-sub" style="${cor}">${classe}</div></div>`;
+  })();
+
+  const fibHtml = `
+    <div style="margin-top:16px">
+      <div class="ta-label" style="margin-bottom:6px">Retração de Fibonacci (máx/mín dos últimos ${nPontos} pregões)</div>
+      ${fib.niveis.map(n => {
+        const proximoDoAtual = ultimoPreco != null && Math.abs(ultimoPreco - n.valor) / (fib.max - fib.min || 1) < 0.02;
+        return `<div class="fib-row ${proximoDoAtual ? 'fib-atual' : ''}"><span>${(n.pct * 100).toFixed(1)}%</span><span class="tabular">${fmtPreco(n.valor)}</span></div>`;
+      }).join('')}
+    </div>`;
+
+  el.innerHTML = `
+    <div class="ta-stat" style="margin-top:14px;background:transparent;border:none;padding:0">
+      <div class="ta-label">${ticker} · último fechamento (${fmtDate(ultimaData)})</div>
+      <div style="font-size:22px;font-weight:700;letter-spacing:-0.01em">${fmtPreco(ultimoPreco)}</div>
+    </div>
+    <div class="ta-grid">
+      ${smaLinha('Média móvel 20d', sma20)}
+      ${smaLinha('Média móvel 50d', sma50)}
+      ${smaLinha('Média móvel 200d', sma200)}
+      ${rsiHtml}
+    </div>
+    ${fibHtml}`;
+}
+
 async function atualizarTesouroAoVivo() {
   const btn = document.getElementById('btnTesouro');
   const statusEl = document.getElementById('aoVivoStatus');
@@ -1981,6 +2150,7 @@ function renderAll() {
   renderDivChart();
   renderSimulador();
   renderImpostoRenda();
+  popularSelectAnaliseTecnica();
   renderAlerts();
 }
 window.addEventListener('resize', () => { if (DATA && document.getElementById('dash').style.display === 'block') renderTreemap(); });
