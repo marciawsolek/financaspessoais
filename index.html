@@ -452,6 +452,18 @@
     </div>
   </section>
 
+  <!-- Resumo semanal -->
+  <section>
+    <div class="section-head"><h2>Resumo semanal</h2></div>
+    <div class="card">
+      <div style="font-size:12.5px;color:var(--text-muted);margin-bottom:12px;line-height:1.5">
+        O que aconteceu na carteira nos últimos 7 dias — operações lançadas, movimentações, alertas e
+        variações do dia — montado a partir dos seus próprios dados.
+      </div>
+      <div id="resumoSemanalTexto" style="font-size:14px;line-height:1.75;color:var(--text-primary)"></div>
+    </div>
+  </section>
+
   <!-- Simulador de metas -->
   <section>
     <div class="section-head"><h2>Simulador de metas e aportes</h2></div>
@@ -1058,6 +1070,7 @@ function recomputarTotais() {
   renderTreemap();
   renderLegend();
   if (document.getElementById('simAporte')) renderSimulador();
+  if (document.getElementById('resumoSemanalTexto')) renderResumoSemanal();
 }
 
 /* ---------------- Modal de operações (compra/venda) ---------------- */
@@ -2420,7 +2433,9 @@ function renderPatrimonioTiles() {
   setTile('totalComPrevValue', 'totalComPrevDelta', DATA.totalComPrev, DATA.deltaComPrev);
 }
 
-function renderAlerts() {
+// Calcula os alertas candidatos e filtra os já concluídos — usado no card de
+// Alertas e reaproveitado no Resumo semanal.
+function getAlertasAtivos() {
   const candidatos = [];
   const abbv = DATA.INTL.find(a => a.ticker === 'ABBV');
   if (abbv) {
@@ -2437,8 +2452,11 @@ function renderAlerts() {
     candidatos.push({ chave: 'meta-nao-atingida', tipo: 'warning', titulo: 'Meta de independência financeira ainda não atingida',
       desc: `Faltam ${brl(DATA.meta.valor - DATA.totalSemPrev)} (sem previdência) — patrimônio atual em ${pct(DATA.totalSemPrev/DATA.meta.valor)} do objetivo (${DATA.mesRefLabel}).` });
   }
+  return candidatos.filter(a => !DATA.dismissedAlertKeys.has(a.chave));
+}
 
-  const alertas = candidatos.filter(a => !DATA.dismissedAlertKeys.has(a.chave));
+function renderAlerts() {
+  const alertas = getAlertasAtivos();
   const el = document.getElementById('alertList');
   if (!alertas.length) { el.innerHTML = `<div style="font-size:13px;color:var(--text-muted)">Nenhum alerta pendente.</div>`; return; }
   el.innerHTML = alertas.map(a =>
@@ -2462,6 +2480,101 @@ async function dismissAlerta(chave, tipo, titulo, desc) {
   await loadAllData();
 }
 
+/* ---------------- Resumo semanal (montado por código, sem IA) ---------------- */
+
+// Junta operações/movimentações/saldos dos últimos 7 dias corridos (data real do
+// calendário, não a linha do tempo fictícia dos dados) + alertas ativos + maiores
+// variações do dia entre os ativos com cotação ao vivo já buscada.
+function coletarResumoSemanal() {
+  const isoLimite = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+
+  const operacoesSemana = [];
+  [...DATA.FII, ...DATA.BR, ...DATA.INTL, ...DATA.CRYPTO].forEach(a => {
+    (a.ops || []).forEach(op => {
+      if (op.data >= isoLimite) operacoesSemana.push({ ticker: a.ticker, tipo: op.tipo, data: op.data, quantidade: Number(op.quantidade), preco: Number(op.preco_unitario), moeda: a.moeda });
+    });
+  });
+  operacoesSemana.sort((a, b) => b.data.localeCompare(a.data));
+
+  const movRfSemana = [];
+  (DATA.RENDA_FIXA || []).forEach(a => {
+    (a.movs || []).forEach(m => {
+      if (m.data >= isoLimite) movRfSemana.push({ nome: a.nome, tipo: m.tipo, data: m.data, valor: Number(m.valor) });
+    });
+  });
+  movRfSemana.sort((a, b) => b.data.localeCompare(a.data));
+
+  const saldosSemana = (DATA.SALDOS || [])
+    .filter(a => a.saldoManual && a.saldoManual.data >= isoLimite)
+    .map(a => ({ nome: a.nome, data: a.saldoManual.data, valor: Number(a.saldoManual.valor) }));
+
+  const alertasAtivos = getAlertasAtivos();
+
+  const variacoes = [];
+  Object.entries(DATA.cotacoesAoVivo || {}).forEach(([ticker, c]) => { if (c.variacaoPct != null) variacoes.push({ ticker, variacaoPct: c.variacaoPct }); });
+  Object.entries(DATA.intlAoVivo || {}).forEach(([ticker, c]) => { if (c.variacaoPct != null) variacoes.push({ ticker, variacaoPct: c.variacaoPct }); });
+  variacoes.sort((a, b) => Math.abs(b.variacaoPct) - Math.abs(a.variacaoPct));
+
+  const provAtual = (DATA.dividendosMensais || [])[(DATA.dividendosMensais || []).length - 1] || null;
+
+  return { operacoesSemana, movRfSemana, saldosSemana, alertasAtivos, topVariacoes: variacoes.slice(0, 3), provAtual };
+}
+
+function montarTextoResumoSemanal(d) {
+  const partes = [];
+
+  partes.push(`Patrimônio atual (sem previdência): <strong>${brl(DATA.totalSemPrev)}</strong>` +
+    (DATA.deltaSemPrev != null
+      ? ` (${DATA.deltaSemPrev >= 0 ? '+' : ''}${brl(DATA.deltaSemPrev)} em relação ao mês anterior).`
+      : '.'));
+
+  if (d.operacoesSemana.length) {
+    const compras = d.operacoesSemana.filter(o => o.tipo === 'compra').length;
+    const vendas = d.operacoesSemana.filter(o => o.tipo === 'venda').length;
+    const resumoTipo = compras && vendas ? `${compras} compra${compras > 1 ? 's' : ''} e ${vendas} venda${vendas > 1 ? 's' : ''}`
+      : compras ? `${compras} compra${compras > 1 ? 's' : ''}` : `${vendas} venda${vendas > 1 ? 's' : ''}`;
+    const lista = d.operacoesSemana.slice(0, 5).map(o =>
+      `${o.tipo} de ${o.quantidade.toLocaleString('pt-BR')} ${o.ticker} a ${o.moeda === 'BRL' || !o.moeda ? brl(o.preco) : o.preco.toLocaleString('pt-BR', { minimumFractionDigits: 2 }) + ' ' + o.moeda}`
+    ).join('; ');
+    partes.push(`Nos últimos 7 dias você lançou ${resumoTipo}: ${lista}${d.operacoesSemana.length > 5 ? ` e mais ${d.operacoesSemana.length - 5}` : ''}.`);
+  } else {
+    partes.push('Nenhuma operação de compra/venda lançada nos últimos 7 dias.');
+  }
+
+  if (d.movRfSemana.length) {
+    partes.push(`Movimentações de renda fixa na semana: ` +
+      d.movRfSemana.map(m => `${m.tipo} de ${brl(m.valor)} em ${m.nome}`).join('; ') + '.');
+  }
+
+  if (d.saldosSemana.length) {
+    partes.push(`Saldos atualizados na semana: ` +
+      d.saldosSemana.map(s => `${s.nome} para ${brl(s.valor)}`).join('; ') + '.');
+  }
+
+  if (d.provAtual && d.provAtual.valor > 0) {
+    partes.push(`Proventos recebidos em ${d.provAtual.mes}: <strong>${brl(d.provAtual.valor)}</strong>.`);
+  }
+
+  if (d.topVariacoes.length) {
+    partes.push(`Maiores variações do dia entre os ativos com cotação atualizada: ` +
+      d.topVariacoes.map(v => `<span class="${v.variacaoPct >= 0 ? 'pl-pos' : 'pl-neg'}">${v.ticker} ${v.variacaoPct >= 0 ? '+' : ''}${v.variacaoPct.toFixed(2)}%</span>`).join(', ') + '.');
+  }
+
+  if (d.alertasAtivos.length) {
+    partes.push(`Alertas ativos: ` + d.alertasAtivos.map(a => a.titulo).join('; ') + '.');
+  } else {
+    partes.push('Nenhum alerta pendente no momento.');
+  }
+
+  return partes.map(p => `<p style="margin:0 0 10px">${p}</p>`).join('');
+}
+
+function renderResumoSemanal() {
+  const el = document.getElementById('resumoSemanalTexto');
+  if (!el || !DATA) return;
+  el.innerHTML = montarTextoResumoSemanal(coletarResumoSemanal());
+}
+
 function renderAll() {
   renderPatrimonioTiles();
   renderMeta();
@@ -2476,6 +2589,7 @@ function renderAll() {
   popularSelectAnaliseTecnica();
   renderRiscoCarteira();
   renderAlerts();
+  renderResumoSemanal();
 }
 window.addEventListener('resize', () => { if (DATA && document.getElementById('dash').style.display === 'block') renderTreemap(); });
 window.addEventListener('scroll', () => { document.getElementById('tooltip').style.display = 'none'; }, true);
