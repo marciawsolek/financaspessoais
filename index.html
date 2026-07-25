@@ -155,6 +155,26 @@
   .section-head .group-total { font-size: 13px; color: var(--text-secondary); }
   .section-head .group-total strong { color: var(--text-primary); font-weight: 600; }
 
+  .section-head.collapsible {
+    align-items: center; cursor: pointer; user-select: none;
+    background: var(--surface); border: 1px solid var(--border); border-radius: 14px;
+    padding: 16px 18px; margin-bottom: 0; transition: border-color 0.15s ease;
+  }
+  .section-head.collapsible:hover { border-color: color-mix(in srgb, var(--text-primary) 20%, var(--border)); }
+  .section-head.collapsible.open { border-radius: 14px 14px 0 0; border-bottom-color: transparent; }
+  .section-title-wrap { display:flex; flex-direction:column; gap:5px; min-width:0; }
+  .section-summary { font-size:12.5px; font-weight:400; color:var(--text-muted); }
+  .collapse-chevron {
+    flex:none; width:26px; height:26px; border-radius:50%; display:flex; align-items:center; justify-content:center;
+    color:var(--text-muted); font-size:11px; margin-left:14px; transition: transform 0.22s ease, background 0.15s ease;
+  }
+  .section-head.collapsible:hover .collapse-chevron { background: color-mix(in srgb, var(--text-primary) 6%, transparent); }
+  .collapse-chevron.open { transform: rotate(180deg); }
+  .collapsible-body {
+    border: 1px solid var(--border); border-top: none; border-radius: 0 0 14px 14px;
+    padding: 18px; background: var(--surface);
+  }
+
   /* ---------- Stat tiles ---------- */
   .tiles { display:grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
   @media (max-width: 900px) { .tiles { grid-template-columns: repeat(2, 1fr); } }
@@ -261,6 +281,15 @@
   .venc-row .name { font-size: 13px; font-weight: 500; }
   .venc-row .date { font-size: 11.5px; color: var(--text-muted); }
   .venc-row .val { font-size: 13px; font-weight: 600; }
+
+  .rs-hero { padding-bottom: 16px; border-bottom: 1px solid var(--gridline); margin-bottom: 16px; }
+  .rs-hero-label { font-size: 12.5px; color: var(--text-muted); margin-bottom: 5px; }
+  .rs-hero-value { font-size: 28px; font-weight: 700; letter-spacing: -0.01em; }
+  .rs-hero-delta { font-size: 13px; margin-top: 5px; font-weight: 500; }
+  .rs-block { margin-top: 20px; }
+  .rs-block-title { font-size: 11.5px; font-weight: 600; color: var(--text-muted); margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.04em; }
+  .rs-chip-row { display:flex; flex-wrap:wrap; gap:8px; }
+  .rs-empty { font-size: 13px; color: var(--text-muted); padding: 6px 0 0; }
 
   .alert { display:flex; align-items:flex-start; gap: 12px; padding: 14px 0; border-bottom: 1px solid var(--gridline); }
   .alert .row-action { flex: none; margin-top: 1px; }
@@ -533,29 +562,43 @@
 
   <!-- Asset table -->
   <section>
-    <div class="section-head">
-      <h2>Ativos por classe</h2>
-      <span id="groupTotal" class="group-total tabular"></span>
+    <div class="section-head collapsible" onclick="toggleSection('ativos')">
+      <div class="section-title-wrap">
+        <h2>Ativos por classe</h2>
+        <span class="section-summary" id="ativosSummary">—</span>
+      </div>
+      <span class="collapse-chevron" id="ativosChevron">▾</span>
     </div>
-    <div class="tabs" id="assetTabs"></div>
-    <div style="display:flex; align-items:center; gap:10px; margin-bottom:10px; flex-wrap:wrap;">
-      <button class="row-action" onclick="atualizarCotacoesAoVivo()" id="btnAoVivo">Atualizar cotações ao vivo</button>
-      <button class="row-action" onclick="atualizarInternacionaisAoVivo()" id="btnIntl" style="display:none;">Atualizar cotações ao vivo</button>
-      <button class="row-action" onclick="atualizarTesouroAoVivo()" id="btnTesouro" style="display:none;">Atualizar valores do Tesouro</button>
-      <span id="aoVivoStatus" style="font-size:12px;color:var(--text-muted)"></span>
-    </div>
-    <div class="table-wrap">
-      <table>
-        <thead><tr id="assetHead"></tr></thead>
-        <tbody id="assetBody"></tbody>
-      </table>
+    <div class="collapsible-body" id="ativosBody" style="display:none">
+      <div style="display:flex;justify-content:flex-end;margin-bottom:6px">
+        <span id="groupTotal" class="group-total tabular"></span>
+      </div>
+      <div class="tabs" id="assetTabs"></div>
+      <div style="display:flex; align-items:center; gap:10px; margin-bottom:10px; flex-wrap:wrap;">
+        <button class="row-action" onclick="atualizarCotacoesAoVivo()" id="btnAoVivo">Atualizar cotações ao vivo</button>
+        <button class="row-action" onclick="atualizarInternacionaisAoVivo()" id="btnIntl" style="display:none;">Atualizar cotações ao vivo</button>
+        <button class="row-action" onclick="atualizarTesouroAoVivo()" id="btnTesouro" style="display:none;">Atualizar valores do Tesouro</button>
+        <span id="aoVivoStatus" style="font-size:12px;color:var(--text-muted)"></span>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr id="assetHead"></tr></thead>
+          <tbody id="assetBody"></tbody>
+        </table>
+      </div>
     </div>
   </section>
 
   <!-- Análise técnica -->
   <section>
-    <div class="section-head"><h2>Análise técnica</h2></div>
-    <div class="card">
+    <div class="section-head collapsible" onclick="toggleSection('ta')">
+      <div class="section-title-wrap">
+        <h2>Análise técnica</h2>
+        <span class="section-summary" id="taSummary">Médias móveis, RSI e Fibonacci de um ativo à sua escolha</span>
+      </div>
+      <span class="collapse-chevron" id="taChevron">▾</span>
+    </div>
+    <div class="collapsible-body" id="taBody" style="display:none">
       <div style="font-size:12.5px;color:var(--text-muted);margin-bottom:12px;line-height:1.5">
         Médias móveis, RSI e Fibonacci calculados sobre o histórico diário de preços do último ano (Yahoo Finance).
         É um apoio pra observar tendência/momentum de um ativo — não é recomendação de compra ou venda.
@@ -580,8 +623,14 @@
 
   <!-- Risco da carteira -->
   <section>
-    <div class="section-head"><h2>Risco da carteira</h2></div>
-    <div class="card">
+    <div class="section-head collapsible" onclick="toggleSection('risco')">
+      <div class="section-title-wrap">
+        <h2>Risco da carteira</h2>
+        <span class="section-summary" id="riscoSummary">—</span>
+      </div>
+      <span class="collapse-chevron" id="riscoChevron">▾</span>
+    </div>
+    <div class="collapsible-body" id="riscoBody" style="display:none">
       <div style="font-size:12.5px;color:var(--text-muted);margin-bottom:12px;line-height:1.5">
         Concentração (quanto cada posição pesa no patrimônio total, incluindo FGTS/Imobilizado) e volatilidade
         histórica anualizada dos ativos com cotação de mercado. São medidas estatísticas simples — não é
@@ -596,8 +645,14 @@
 
   <!-- Análise fundamentalista -->
   <section>
-    <div class="section-head"><h2>Análise fundamentalista (Ações BR)</h2></div>
-    <div class="card">
+    <div class="section-head collapsible" onclick="toggleSection('fund')">
+      <div class="section-title-wrap">
+        <h2>Análise fundamentalista (Ações BR)</h2>
+        <span class="section-summary" id="fundSummary">—</span>
+      </div>
+      <span class="collapse-chevron" id="fundChevron">▾</span>
+    </div>
+    <div class="collapsible-body" id="fundBody" style="display:none">
       <div style="font-size:12.5px;color:var(--text-muted);margin-bottom:12px;line-height:1.5">
         ROE, ROA e crescimento de lucro calculados a partir dos dados oficiais da CVM (DFP, demonstrações
         financeiras anuais). O "score" é só uma contagem simples de indicadores em patamar saudável — não é
@@ -726,6 +781,20 @@ function toggleTheme() {
   const next = cur === 'dark' ? 'light' : 'dark';
   root.setAttribute('data-theme', next);
   document.getElementById('themeBtn').textContent = next === 'dark' ? 'Modo claro' : 'Modo escuro';
+}
+
+// Abre/fecha as seções expansíveis (Ativos por classe, Análise técnica, Risco,
+// Análise fundamentalista) — cada uma tem #<id>Body, #<id>Chevron e o próprio
+// .section-head.collapsible que disparou o clique.
+function toggleSection(id) {
+  const body = document.getElementById(id + 'Body');
+  const chevron = document.getElementById(id + 'Chevron');
+  if (!body) return;
+  const abrir = body.style.display === 'none';
+  body.style.display = abrir ? '' : 'none';
+  if (chevron) chevron.classList.toggle('open', abrir);
+  const head = chevron ? chevron.closest('.section-head') : null;
+  if (head) head.classList.toggle('open', abrir);
 }
 
 /* ---------------- Auth (Supabase Auth real) ---------------- */
@@ -1581,6 +1650,11 @@ async function atualizarAnaliseTecnica() {
       { label: 'MM 200d', cor: 'var(--series-6)', largura: 1.4, tracejado: '1,3', dados: sma200Serie },
     ], fib, moeda);
     statusEl.textContent = `${closes.length} pregões no último ano · atualizado ${fmtDate(ultimaData)}`;
+    const taSummaryEl = document.getElementById('taSummary');
+    if (taSummaryEl) {
+      const precoTxt = ultimoPreco.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + (moeda ? ` ${moeda}` : '');
+      taSummaryEl.textContent = `Última análise: ${ticker} — ${precoTxt} (${fmtDate(ultimaData)})`;
+    }
   } catch (err) {
     console.error(err);
     resultadoEl.innerHTML = '';
@@ -1843,12 +1917,18 @@ function renderRiscoCarteira() {
   if (!linhas.length) {
     resumoEl.innerHTML = '';
     tabelaEl.innerHTML = `<div style="font-size:13px;color:var(--text-muted)">Nenhuma posição encontrada.</div>`;
+    const summaryElVazio = document.getElementById('riscoSummary');
+    if (summaryElVazio) summaryElVazio.textContent = 'Nenhuma posição encontrada';
     return;
   }
 
   const hhi = calcularHHI(linhas);
   const classe = classificarHHI(hhi);
   const nConcentrados = linhas.filter(l => l.peso >= 0.10).length;
+
+  const summaryEl = document.getElementById('riscoSummary');
+  if (summaryEl) summaryEl.textContent = `${classe.label} · ${linhas.length} posições · índice de concentração ${(hhi * 100).toFixed(1)}`;
+
   resumoEl.innerHTML = `
     <span class="badge ${classe.badge} tight">${classe.label} · índice de concentração ${(hhi * 100).toFixed(1)}</span>
     <div style="font-size:12.5px;color:var(--text-muted);margin-top:6px">
@@ -1899,13 +1979,19 @@ function calcularFundamentos(f) {
 
 function renderFundamentos() {
   const el = document.getElementById('fundamentosTabelaWrap');
+  const summaryEl = document.getElementById('fundSummary');
   if (!el || !DATA) return;
   const lista = DATA.FUNDAMENTOS || [];
   if (!lista.length) {
     el.innerHTML = `<div style="font-size:13px;color:var(--text-muted)">Nenhum dado fundamentalista carregado ainda — rode supabase/fundamentos_acoes.sql.</div>`;
+    if (summaryEl) summaryEl.textContent = 'Dados ainda não carregados';
     return;
   }
   const linhas = lista.map(calcularFundamentos).sort((a, b) => b.score - a.score || (b.roe ?? -1) - (a.roe ?? -1));
+  if (summaryEl) {
+    const nBoas = linhas.filter(l => l.score >= 2).length;
+    summaryEl.textContent = `${linhas.length} ações · ${nBoas} com score 2/3 ou mais`;
+  }
 
   el.innerHTML = `
     <table>
@@ -2153,6 +2239,12 @@ function autoFetchAoVivoSeNecessario() {
 }
 
 function renderAssetTable() {
+  const summaryEl = document.getElementById('ativosSummary');
+  if (summaryEl && DATA.allocation) {
+    const nClasses = DATA.allocation.length;
+    summaryEl.textContent = `${nClasses} ${nClasses === 1 ? 'classe' : 'classes'} de ativos · patrimônio total ${brl(DATA.totalSemPrev)}`;
+  }
+
   const conf = getClasses()[activeClass];
   const head = document.getElementById('assetHead');
   const body = document.getElementById('assetBody');
@@ -2588,52 +2680,69 @@ function coletarResumoSemanal() {
 }
 
 function montarTextoResumoSemanal(d) {
-  const partes = [];
+  const deltaPositivo = DATA.deltaSemPrev == null || DATA.deltaSemPrev >= 0;
+  const hero = `
+    <div class="rs-hero">
+      <div class="rs-hero-label">Patrimônio atual (sem previdência)</div>
+      <div class="rs-hero-value tabular">${brl(DATA.totalSemPrev)}</div>
+      ${DATA.deltaSemPrev != null ? `<div class="rs-hero-delta ${deltaPositivo ? 'pl-pos' : 'pl-neg'}">${deltaPositivo ? '↑' : '↓'} ${brl(Math.abs(DATA.deltaSemPrev))} em relação ao mês anterior</div>` : ''}
+    </div>`;
 
-  partes.push(`Patrimônio atual (sem previdência): <strong>${brl(DATA.totalSemPrev)}</strong>` +
-    (DATA.deltaSemPrev != null
-      ? ` (${DATA.deltaSemPrev >= 0 ? '+' : ''}${brl(DATA.deltaSemPrev)} em relação ao mês anterior).`
-      : '.'));
+  const compras = d.operacoesSemana.filter(o => o.tipo === 'compra').length;
+  const vendas = d.operacoesSemana.filter(o => o.tipo === 'venda').length;
+  const opsSub = !d.operacoesSemana.length ? 'nos últimos 7 dias'
+    : (compras && vendas ? `${compras} compra${compras > 1 ? 's' : ''}, ${vendas} venda${vendas > 1 ? 's' : ''}`
+      : compras ? `${compras} compra${compras > 1 ? 's' : ''}` : `${vendas} venda${vendas > 1 ? 's' : ''}`);
 
-  if (d.operacoesSemana.length) {
-    const compras = d.operacoesSemana.filter(o => o.tipo === 'compra').length;
-    const vendas = d.operacoesSemana.filter(o => o.tipo === 'venda').length;
-    const resumoTipo = compras && vendas ? `${compras} compra${compras > 1 ? 's' : ''} e ${vendas} venda${vendas > 1 ? 's' : ''}`
-      : compras ? `${compras} compra${compras > 1 ? 's' : ''}` : `${vendas} venda${vendas > 1 ? 's' : ''}`;
-    const lista = d.operacoesSemana.slice(0, 5).map(o =>
-      `${o.tipo} de ${o.quantidade.toLocaleString('pt-BR')} ${o.ticker} a ${o.moeda === 'BRL' || !o.moeda ? brl(o.preco) : o.preco.toLocaleString('pt-BR', { minimumFractionDigits: 2 }) + ' ' + o.moeda}`
-    ).join('; ');
-    partes.push(`Nos últimos 7 dias você lançou ${resumoTipo}: ${lista}${d.operacoesSemana.length > 5 ? ` e mais ${d.operacoesSemana.length - 5}` : ''}.`);
-  } else {
-    partes.push('Nenhuma operação de compra/venda lançada nos últimos 7 dias.');
-  }
+  const stats = `
+    <div class="ta-grid">
+      <div class="ta-stat"><div class="ta-label">Operações na semana</div><div class="ta-value">${d.operacoesSemana.length}</div><div class="ta-sub" style="color:var(--text-muted)">${opsSub}</div></div>
+      <div class="ta-stat"><div class="ta-label">Proventos${d.provAtual ? ' · ' + d.provAtual.mes : ''}</div><div class="ta-value">${d.provAtual ? brl(d.provAtual.valor) : '—'}</div></div>
+      <div class="ta-stat"><div class="ta-label">Alertas ativos</div><div class="ta-value">${d.alertasAtivos.length}</div><div class="ta-sub" style="color:${d.alertasAtivos.length ? 'var(--status-warning)' : 'var(--status-good)'}">${d.alertasAtivos.length ? 'requer atenção' : 'tudo certo'}</div></div>
+    </div>`;
 
-  if (d.movRfSemana.length) {
-    partes.push(`Movimentações de renda fixa na semana: ` +
-      d.movRfSemana.map(m => `${m.tipo} de ${brl(m.valor)} em ${m.nome}`).join('; ') + '.');
-  }
+  const fmtPrecoOp = (o) => (o.moeda === 'BRL' || !o.moeda) ? brl(o.preco) : o.preco.toLocaleString('pt-BR', { minimumFractionDigits: 2 }) + ' ' + o.moeda;
+  const rowsOperacoes = d.operacoesSemana.map(o => `
+    <div class="venc-row">
+      <div><div class="name"><span class="${o.tipo === 'compra' ? 'pl-pos' : 'pl-neg'}">${o.tipo === 'compra' ? 'Compra' : 'Venda'}</span> · ${o.quantidade.toLocaleString('pt-BR')} ${o.ticker}</div><div class="date">${fmtDate(o.data)}</div></div>
+      <div class="val tabular">${fmtPrecoOp(o)}</div>
+    </div>`).join('');
 
-  if (d.saldosSemana.length) {
-    partes.push(`Saldos atualizados na semana: ` +
-      d.saldosSemana.map(s => `${s.nome} para ${brl(s.valor)}`).join('; ') + '.');
-  }
+  const rowsMovRf = d.movRfSemana.map(m => `
+    <div class="venc-row">
+      <div><div class="name"><span class="${m.tipo === 'aporte' ? 'pl-pos' : 'pl-neg'}">${m.tipo === 'aporte' ? 'Aporte' : 'Resgate'}</span> · ${m.nome}</div><div class="date">${fmtDate(m.data)}</div></div>
+      <div class="val tabular">${brl(m.valor)}</div>
+    </div>`).join('');
 
-  if (d.provAtual && d.provAtual.valor > 0) {
-    partes.push(`Proventos recebidos em ${d.provAtual.mes}: <strong>${brl(d.provAtual.valor)}</strong>.`);
-  }
+  const rowsSaldos = d.saldosSemana.map(s => `
+    <div class="venc-row">
+      <div><div class="name">${s.nome}</div><div class="date">${fmtDate(s.data)}</div></div>
+      <div class="val tabular">${brl(s.valor)}</div>
+    </div>`).join('');
 
-  if (d.topVariacoes.length) {
-    partes.push(`Maiores variações do dia entre os ativos com cotação atualizada: ` +
-      d.topVariacoes.map(v => `<span class="${v.variacaoPct >= 0 ? 'pl-pos' : 'pl-neg'}">${v.ticker} ${v.variacaoPct >= 0 ? '+' : ''}${v.variacaoPct.toFixed(2)}%</span>`).join(', ') + '.');
-  }
+  const bloco = (titulo, conteudoHtml) => conteudoHtml ? `<div class="rs-block"><div class="rs-block-title">${titulo}</div>${conteudoHtml}</div>` : '';
 
-  if (d.alertasAtivos.length) {
-    partes.push(`Alertas ativos: ` + d.alertasAtivos.map(a => a.titulo).join('; ') + '.');
-  } else {
-    partes.push('Nenhum alerta pendente no momento.');
-  }
+  const blocoVariacoes = d.topVariacoes.length ? `
+    <div class="rs-block">
+      <div class="rs-block-title">Maiores variações do dia</div>
+      <div class="rs-chip-row">
+        ${d.topVariacoes.map(v => `<span class="badge ${v.variacaoPct >= 0 ? 'good' : 'critical'} tight">${v.ticker} ${v.variacaoPct >= 0 ? '+' : ''}${v.variacaoPct.toFixed(2)}%</span>`).join('')}
+      </div>
+    </div>` : '';
 
-  return partes.map(p => `<p style="margin:0 0 10px">${p}</p>`).join('');
+  const blocoAlertas = `
+    <div class="rs-block">
+      <div class="rs-block-title">Alertas ativos</div>
+      ${d.alertasAtivos.length
+        ? d.alertasAtivos.map(a => `<div class="venc-row"><div class="name">${a.titulo}</div></div>`).join('')
+        : `<div class="rs-empty">Nenhum alerta pendente no momento — tudo em dia.</div>`}
+    </div>`;
+
+  return hero + stats
+    + bloco('Operações lançadas', rowsOperacoes)
+    + bloco('Movimentações de renda fixa', rowsMovRf)
+    + bloco('Saldos atualizados', rowsSaldos)
+    + blocoVariacoes + blocoAlertas;
 }
 
 function renderResumoSemanal() {
