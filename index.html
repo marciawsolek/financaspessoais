@@ -554,21 +554,6 @@
     </div>
   </section>
 
-  <!-- Imposto de renda sobre vendas -->
-  <section>
-    <div class="section-head"><h2>Imposto de renda (vendas)</h2></div>
-    <div class="card">
-      <div style="font-size:12.5px;color:var(--text-muted);margin-bottom:10px;line-height:1.5">
-        Estimativa com base nas operações de venda lançadas no sistema. Ações BR: isentas até R$ 20.000 vendidos/mês
-        (acima disso, 15% sobre o lucro do mês). FIIs: 20% sobre o lucro, sem isenção. Cripto: isenta até R$ 35.000
-        vendidos/mês. Ações internacionais seguem regra de ganho de capital no exterior — aqui é uma simplificação
-        (15% flat), não a tabela progressiva real. Prejuízo de um mês não compensa lucro de outro neste cálculo.
-        <strong>Não substitui orientação de um contador.</strong>
-      </div>
-      <div id="irResumo" style="margin-bottom:10px"></div>
-      <div id="irTabelaWrap"></div>
-    </div>
-  </section>
 
   <!-- Monthly dividends -->
   <section>
@@ -697,6 +682,28 @@
         não têm essa base de dados ainda).
       </div>
       <div id="fundamentosTabelaWrap"></div>
+    </div>
+  </section>
+
+  <!-- Imposto de renda sobre vendas -->
+  <section>
+    <div class="section-head collapsible" onclick="toggleSection('ir')">
+      <div class="section-title-wrap">
+        <h2>Imposto de renda (vendas)</h2>
+        <span class="section-summary" id="irSummary">—</span>
+      </div>
+      <span class="collapse-chevron" id="irChevron">▾</span>
+    </div>
+    <div class="collapsible-body" id="irBody" style="display:none">
+      <div style="font-size:12.5px;color:var(--text-muted);margin-bottom:10px;line-height:1.5">
+        Estimativa com base nas operações de venda lançadas no sistema. Ações BR: isentas até R$ 20.000 vendidos/mês
+        (acima disso, 15% sobre o lucro do mês). FIIs: 20% sobre o lucro, sem isenção. Cripto: isenta até R$ 35.000
+        vendidos/mês. Ações internacionais seguem regra de ganho de capital no exterior — aqui é uma simplificação
+        (15% flat), não a tabela progressiva real. Prejuízo de um mês não compensa lucro de outro neste cálculo.
+        <strong>Não substitui orientação de um contador.</strong>
+      </div>
+      <div id="irResumo" style="margin-bottom:10px"></div>
+      <div id="irTabelaWrap"></div>
     </div>
   </section>
 
@@ -2582,17 +2589,22 @@ function renderSimulador() {
 function renderImpostoRenda() {
   const wrap = document.getElementById('irTabelaWrap');
   const resumoEl = document.getElementById('irResumo');
+  const summaryEl = document.getElementById('irSummary');
   if (!wrap || !resumoEl) return;
   const linhas = calcularImpostoRenda();
 
   if (!linhas.length) {
     resumoEl.innerHTML = '';
     wrap.innerHTML = `<div style="font-size:13px;color:var(--text-muted)">Nenhuma venda lançada ainda — assim que você registrar uma venda em Ações, FIIs ou Cripto, o cálculo aparece aqui.</div>`;
+    if (summaryEl) summaryEl.textContent = 'Nenhuma venda lançada ainda';
     return;
   }
 
   const totalDevido = linhas.reduce((s, l) => s + l.imposto, 0);
   const mesesComImposto = linhas.filter(l => l.imposto > 0).length;
+  if (summaryEl) summaryEl.textContent = totalDevido > 0
+    ? `DARF estimado: ${brl(totalDevido)} em ${mesesComImposto} ${mesesComImposto === 1 ? 'mês' : 'meses'}`
+    : 'Nenhum imposto devido até agora';
   resumoEl.innerHTML = totalDevido > 0
     ? `<span class="badge warning">DARF total estimado: ${brl(totalDevido)}</span> em ${mesesComImposto} ${mesesComImposto === 1 ? 'mês' : 'meses'} com imposto devido.`
     : `<span class="badge good">&check; Nenhum imposto devido nas vendas registradas até agora.</span>`;
@@ -2721,7 +2733,8 @@ function montarTextoResumoSemanal(d) {
     <div class="rs-hero">
       <div class="rs-hero-label">Patrimônio atual (sem previdência)</div>
       <div class="rs-hero-value tabular">${brl(DATA.totalSemPrev)}</div>
-      ${DATA.deltaSemPrev != null ? `<div class="rs-hero-delta ${deltaPositivo ? 'pl-pos' : 'pl-neg'}">${deltaPositivo ? '↑' : '↓'} ${brl(Math.abs(DATA.deltaSemPrev))} em relação ao mês anterior</div>` : ''}
+      ${DATA.deltaSemPrev != null ? `<div class="rs-hero-delta ${deltaPositivo ? 'pl-pos' : 'pl-neg'}">${deltaPositivo ? '↑' : '↓'} ${brl(Math.abs(DATA.deltaSemPrev))} desde o fechamento do mês anterior</div>
+      <div style="font-size:11px;color:var(--text-muted);margin-top:2px">não é a variação da semana — o dashboard só tem snapshot mensal de patrimônio, não diário</div>` : ''}
     </div>`;
 
   const compras = d.operacoesSemana.filter(o => o.tipo === 'compra').length;
