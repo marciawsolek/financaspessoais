@@ -304,6 +304,13 @@
   .alert .a-title { font-size: 13px; font-weight: 600; margin-bottom: 2px; }
   .alert .a-desc { font-size: 12.5px; color: var(--text-secondary); line-height: 1.5; }
 
+  .deter-cat { font-weight: 400; color: var(--text-muted); font-size: 11.5px; margin-left: 7px; }
+  .deter-reasons { display:flex; flex-direction:column; gap: 6px; margin-top: 4px; }
+  .deter-reason { font-size: 12.5px; color: var(--text-secondary); line-height: 1.4; display:flex; align-items:center; gap: 8px; }
+  .deter-tag { font-size: 9.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; padding: 2px 6px; border-radius: 5px; flex: none; }
+  .deter-reason.critical .deter-tag { background: color-mix(in srgb, var(--status-critical) 16%, transparent); color: var(--status-critical); }
+  .deter-reason.moderate .deter-tag { background: color-mix(in srgb, var(--status-warning) 20%, transparent); color: var(--status-warning); }
+
   footer { text-align:center; font-size: 11.5px; color: var(--text-muted); margin-top: 40px; line-height: 1.6; }
 
   /* ---------- Monthly dividends bar chart ---------- */
@@ -2160,9 +2167,13 @@ function renderDeterioracao() {
     return;
   }
 
+  const nAtivos = new Set(alertas.map(a => a.ticker)).size;
   resumoEl.innerHTML = `
-    ${nCriticos ? `<span class="badge critical tight" style="margin-right:8px">${nCriticos} crítico${nCriticos !== 1 ? 's' : ''}</span>` : ''}
-    ${nModerados ? `<span class="badge moderate tight">${nModerados} moderado${nModerados !== 1 ? 's' : ''}</span>` : ''}`;
+    <div class="ta-grid">
+      <div class="ta-stat"><div class="ta-label">Sinais críticos</div><div class="ta-value" style="color:var(--status-critical)">${nCriticos}</div></div>
+      <div class="ta-stat"><div class="ta-label">Sinais moderados</div><div class="ta-value" style="color:var(--status-warning)">${nModerados}</div></div>
+      <div class="ta-stat"><div class="ta-label">Ativos com algum sinal</div><div class="ta-value">${nAtivos}</div></div>
+    </div>`;
 
   const porAtivo = {};
   alertas.forEach(a => { (porAtivo[a.ticker] = porAtivo[a.ticker] || { ticker: a.ticker, categoria: a.categoria, itens: [] }).itens.push(a); });
@@ -2172,18 +2183,19 @@ function renderDeterioracao() {
     return piorB - piorA;
   });
 
-  tabelaEl.innerHTML = `
-    <table>
-      <thead><tr><th>Ativo</th><th>Categoria</th><th>Sinais</th></tr></thead>
-      <tbody>
-        ${linhas.map(l => `
-          <tr>
-            <td>${l.ticker}</td>
-            <td>${l.categoria}</td>
-            <td>${l.itens.map(i => `<span class="badge ${i.nivel} tight" style="margin:0 4px 4px 0">${i.tipo}: ${i.motivo}</span>`).join('')}</td>
-          </tr>`).join('')}
-      </tbody>
-    </table>`;
+  tabelaEl.innerHTML = linhas.map(l => {
+    const temCritico = l.itens.some(i => i.nivel === 'critical');
+    return `
+      <div class="alert">
+        <div class="alert-dot ${temCritico ? 'serious' : 'warning'}"></div>
+        <div style="flex:1">
+          <div class="a-title">${l.ticker}<span class="deter-cat">${CATEGORY_LABEL[l.categoria] || l.categoria}</span></div>
+          <div class="deter-reasons">
+            ${l.itens.map(i => `<div class="deter-reason ${i.nivel}"><span class="deter-tag">${i.tipo}</span>${i.motivo}</div>`).join('')}
+          </div>
+        </div>
+      </div>`;
+  }).join('');
 }
 
 async function atualizarTesouroAoVivo() {
