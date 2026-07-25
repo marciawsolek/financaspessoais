@@ -664,6 +664,29 @@
     </div>
   </section>
 
+  <!-- Alerta de deterioração -->
+  <section>
+    <div class="section-head collapsible" onclick="toggleSection('deter')">
+      <div class="section-title-wrap">
+        <h2>Alerta de deterioração</h2>
+        <span class="section-summary" id="deterSummary">—</span>
+      </div>
+      <span class="collapse-chevron" id="deterChevron">▾</span>
+    </div>
+    <div class="collapsible-body" id="deterBody" style="display:none">
+      <div style="font-size:12.5px;color:var(--text-muted);margin-bottom:12px;line-height:1.5">
+        Sinais de piora em dois níveis: <strong>fundamentos</strong> (lucro caindo, score fundamentalista baixo — só
+        Ações BR, dados da CVM) e <strong>preço</strong> (abaixo da média de 200 dias, queda forte desde a máxima do
+        ano, RSI sobrevendido — ativos com cotação de mercado). Não analisa notícias nem sentimento de mercado real,
+        só o que já está nos seus dados. Não é recomendação de venda — só um mapa de onde olhar com mais atenção.
+      </div>
+      <div id="deterResumo" style="margin-bottom:12px"></div>
+      <button class="row-action" id="btnDeterPreco" onclick="atualizarDeterioracaoPreco()">Verificar sinais de preço</button>
+      <span id="deterPrecoStatus" style="font-size:12px;color:var(--text-muted);margin-left:8px"></span>
+      <div id="deterTabelaWrap" style="margin-top:12px"></div>
+    </div>
+  </section>
+
   <!-- Imposto de renda sobre vendas -->
   <section>
     <div class="section-head collapsible" onclick="toggleSection('ir')">
@@ -2033,6 +2056,136 @@ function renderFundamentos() {
     </table>`;
 }
 
+/* ---------------- Alerta de deterioração (fundamentos CVM + sinais de preço) ---------------- */
+
+// Sinais de deterioração de fundamentos — só Ações BR, a partir de fundamentos_acoes
+// (já carregado em DATA.FUNDAMENTOS, sem precisar de nova busca).
+function alertasFundamentaisDeterioracao() {
+  const lista = DATA.FUNDAMENTOS || [];
+  return lista.map(calcularFundamentos).flatMap(f => {
+    const alerts = [];
+    if (f.crescimentoLucro != null && f.crescimentoLucro < 0) {
+      alerts.push({
+        ticker: f.ticker, categoria: 'Acao BR', tipo: 'Fundamentos',
+        motivo: `Lucro caiu ${pct(Math.abs(f.crescimentoLucro))} no último ano`,
+        nivel: f.crescimentoLucro < -0.20 ? 'critical' : 'moderate',
+      });
+    }
+    if (f.score <= 1) {
+      alerts.push({
+        ticker: f.ticker, categoria: 'Acao BR', tipo: 'Fundamentos',
+        motivo: `Score fundamentalista baixo (${f.score}/3)`,
+        nivel: f.score === 0 ? 'critical' : 'moderate',
+      });
+    }
+    return alerts;
+  });
+}
+
+// Sinais de deterioração de preço — busca histórico de 1 ano (Edge Function 'historico',
+// mesma usada na Análise técnica) pra cada ativo com cotação de mercado. Ação manual
+// (botão) porque dispara uma chamada por ativo em paralelo, igual à volatilidade do Risco.
+async function atualizarDeterioracaoPreco() {
+  const btn = document.getElementById('btnDeterPreco');
+  const statusEl = document.getElementById('deterPrecoStatus');
+  const alvos = [
+    ...DATA.FII.map(a => ({ ticker: a.ticker, categoria: 'FII' })),
+    ...DATA.BR.map(a => ({ ticker: a.ticker, categoria: 'Acao BR' })),
+    ...DATA.INTL.map(a => ({ ticker: a.ticker, categoria: 'Acao Intl' })),
+    ...DATA.CRYPTO.map(a => ({ ticker: a.ticker, categoria: 'Cripto' })),
+  ];
+  if (!alvos.length) { statusEl.textContent = 'Nenhum ativo com preço de mercado pra verificar.'; return; }
+
+  btn.disabled = true; btn.textContent = 'Verificando…';
+  statusEl.style.color = 'var(--text-muted)';
+  statusEl.textContent = '';
+  try {
+    const resultados = await Promise.all(alvos.map(async (a) => {
+      try {
+        const symbol = yahooSymbolPara(a.categoria, a.ticker);
+        const { precos } = await buscarHistorico(symbol, '1y');
+        const closes = precos.map(p => p.fechamento);
+        const ultimoPreco = closes[closes.length - 1];
+        const sma200 = ultimoValorValido(calcularSMASerie(closes, 200));
+        const rsi = calcularRSI(closes, 14);
+        const fib = calcularFibonacci(closes);
+        const quedaMax = fib.max > 0 ? (fib.max - ultimoPreco) / fib.max : null;
+
+        const alerts = [];
+        if (sma200 != null && ultimoPreco < sma200) {
+          alerts.push({ ticker: a.ticker, categoria: a.categoria, tipo: 'Preço', motivo: 'Abaixo da média de 200 dias', nivel: 'moderate' });
+        }
+        if (quedaMax != null && quedaMax > 0.20) {
+          alerts.push({ ticker: a.ticker, categoria: a.categoria, tipo: 'Preço', motivo: `${pct(quedaMax)} abaixo da máxima dos últimos 12 meses`, nivel: quedaMax > 0.35 ? 'critical' : 'moderate' });
+        }
+        if (rsi != null && rsi < 30) {
+          alerts.push({ ticker: a.ticker, categoria: a.categoria, tipo: 'Preço', motivo: `RSI em ${rsi.toFixed(1)} (sobrevendido)`, nivel: 'moderate' });
+        }
+        return { ticker: a.ticker, ok: true, alerts };
+      } catch (e) {
+        return { ticker: a.ticker, ok: false, alerts: [] };
+      }
+    }));
+    DATA.deterioracaoPreco = resultados.flatMap(r => r.alerts);
+    const ok = resultados.filter(r => r.ok).length;
+    statusEl.textContent = `${ok} de ${alvos.length} ativos verificados.`;
+    renderDeterioracao();
+  } catch (err) {
+    console.error(err);
+    statusEl.textContent = 'Erro: ' + err.message;
+    statusEl.style.color = 'var(--status-critical)';
+  } finally {
+    btn.disabled = false; btn.textContent = 'Verificar sinais de preço';
+  }
+}
+
+function renderDeterioracao() {
+  const resumoEl = document.getElementById('deterResumo');
+  const tabelaEl = document.getElementById('deterTabelaWrap');
+  const summaryEl = document.getElementById('deterSummary');
+  if (!resumoEl || !tabelaEl || !DATA) return;
+
+  const alertas = [...alertasFundamentaisDeterioracao(), ...(DATA.deterioracaoPreco || [])];
+  const nCriticos = alertas.filter(a => a.nivel === 'critical').length;
+  const nModerados = alertas.filter(a => a.nivel === 'moderate').length;
+
+  if (summaryEl) {
+    summaryEl.textContent = !alertas.length ? 'Nenhum sinal de deterioração encontrado'
+      : `${nCriticos} crítico${nCriticos !== 1 ? 's' : ''} · ${nModerados} moderado${nModerados !== 1 ? 's' : ''}`;
+  }
+
+  if (!alertas.length) {
+    resumoEl.innerHTML = `<span class="badge good tight">&check; Nenhum sinal de deterioração encontrado nos dados disponíveis.</span>`;
+    tabelaEl.innerHTML = '';
+    return;
+  }
+
+  resumoEl.innerHTML = `
+    ${nCriticos ? `<span class="badge critical tight" style="margin-right:8px">${nCriticos} crítico${nCriticos !== 1 ? 's' : ''}</span>` : ''}
+    ${nModerados ? `<span class="badge moderate tight">${nModerados} moderado${nModerados !== 1 ? 's' : ''}</span>` : ''}`;
+
+  const porAtivo = {};
+  alertas.forEach(a => { (porAtivo[a.ticker] = porAtivo[a.ticker] || { ticker: a.ticker, categoria: a.categoria, itens: [] }).itens.push(a); });
+  const linhas = Object.values(porAtivo).sort((a, b) => {
+    const piorA = a.itens.some(i => i.nivel === 'critical') ? 2 : 1;
+    const piorB = b.itens.some(i => i.nivel === 'critical') ? 2 : 1;
+    return piorB - piorA;
+  });
+
+  tabelaEl.innerHTML = `
+    <table>
+      <thead><tr><th>Ativo</th><th>Categoria</th><th>Sinais</th></tr></thead>
+      <tbody>
+        ${linhas.map(l => `
+          <tr>
+            <td>${l.ticker}</td>
+            <td>${l.categoria}</td>
+            <td>${l.itens.map(i => `<span class="badge ${i.nivel} tight" style="margin:0 4px 4px 0">${i.tipo}: ${i.motivo}</span>`).join('')}</td>
+          </tr>`).join('')}
+      </tbody>
+    </table>`;
+}
+
 async function atualizarTesouroAoVivo() {
   const btn = document.getElementById('btnTesouro');
   const statusEl = document.getElementById('aoVivoStatus');
@@ -2757,6 +2910,7 @@ function renderAll() {
   popularSelectAnaliseTecnica();
   renderRiscoCarteira();
   renderFundamentos();
+  renderDeterioracao();
   renderAlerts();
   if (document.getElementById('chatMensagens') && !chatHistorico.length) renderChatMensagens();
 }
