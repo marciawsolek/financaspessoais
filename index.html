@@ -291,6 +291,18 @@
   .rs-chip-row { display:flex; flex-wrap:wrap; gap:8px; }
   .rs-empty { font-size: 13px; color: var(--text-muted); padding: 6px 0 0; }
 
+  .chat-mensagens { max-height: 360px; overflow-y: auto; display:flex; flex-direction:column; gap:14px; }
+  .chat-msg { padding-bottom: 12px; border-bottom: 1px solid var(--gridline); }
+  .chat-msg:last-child { border-bottom: none; padding-bottom: 0; }
+  .chat-msg-pergunta { font-size: 13.5px; font-weight: 600; color: var(--text-primary); }
+  .chat-msg-resposta { font-size: 13.5px; color: var(--text-secondary); line-height: 1.6; margin-top: 5px; white-space: pre-wrap; }
+  .chat-empty { font-size: 13px; color: var(--text-muted); }
+  .chat-form { display:flex; gap:8px; margin-top: 14px; }
+  .chat-form input {
+    flex:1; padding: 10px 13px; border-radius: 9px; border: 1px solid var(--border);
+    background: var(--page); color: var(--text-primary); font-size: 14px;
+  }
+
   .alert { display:flex; align-items:flex-start; gap: 12px; padding: 14px 0; border-bottom: 1px solid var(--gridline); }
   .alert .row-action { flex: none; margin-top: 1px; }
   .alert:last-child { border-bottom: none; }
@@ -490,6 +502,29 @@
         variações do dia — montado a partir dos seus próprios dados.
       </div>
       <div id="resumoSemanalTexto" style="font-size:14px;line-height:1.75;color:var(--text-primary)"></div>
+    </div>
+  </section>
+
+  <!-- Chat com seus dados -->
+  <section>
+    <div class="section-head collapsible" onclick="toggleSection('chat')">
+      <div class="section-title-wrap">
+        <h2>Chat com seus dados</h2>
+        <span class="section-summary" id="chatSummary">Pergunte em português sobre sua carteira</span>
+      </div>
+      <span class="collapse-chevron" id="chatChevron">▾</span>
+    </div>
+    <div class="collapsible-body" id="chatBody" style="display:none">
+      <div style="font-size:12.5px;color:var(--text-muted);margin-bottom:12px;line-height:1.5">
+        Pergunte sobre os seus próprios dados — ex: "quanto recebi de dividendos em 2025?", "qual ativo tem maior
+        peso na carteira?". Usa a API da Anthropic (custo pequeno por pergunta) e responde só com base nos seus
+        dados reais — nunca dá recomendação de compra ou venda.
+      </div>
+      <div id="chatMensagens" class="chat-mensagens"></div>
+      <form class="chat-form" onsubmit="return enviarPerguntaChat(event)">
+        <input type="text" id="chatInput" placeholder="Ex: quanto recebi de dividendos em 2025?">
+        <button type="submit" class="btn-primary" id="chatBtn">Perguntar</button>
+      </form>
     </div>
   </section>
 
@@ -1074,6 +1109,7 @@ async function loadAllData(tentativa = 1) {
       meta: metaRow ? { id: metaRow.id, valor: metaRow.valor_alvo } : { id: null, valor: 2000000 },
       metaDividendos: metaDivRow ? { id: metaDivRow.id, valor: metaDivRow.valor_alvo } : { id: null, valor: 10000 },
       FUNDAMENTOS: fundRes.error ? [] : (fundRes.data || []),
+      patrimonioMensal: patrimonio.map(p => ({ mes: mesLabel(p.mes_referencia), total_sem_prev: p.total_sem_prev, total_com_prev: p.total_com_prev })),
       dismissedAlertKeys: dismissedKeys,
       cotacoesAoVivo: cotacoesAoVivoAnteriores || {},
       tesouroAoVivo: tesouroAoVivoAnterior || {},
@@ -2751,6 +2787,84 @@ function renderResumoSemanal() {
   el.innerHTML = montarTextoResumoSemanal(coletarResumoSemanal());
 }
 
+/* ---------------- Chat com seus dados (Edge Function 'chat' -> API Anthropic) ---------------- */
+
+function escapeHtml(str) {
+  return String(str).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+// Monta um retrato compacto dos dados do usuário pra dar de contexto ao modelo —
+// só o que já está carregado em DATA, sem chamada nova ao banco.
+function coletarContextoChat() {
+  const posicao = (lista, categoria) => (lista || []).map(a => ({
+    ticker: a.ticker, categoria, quantidade: a.qtd, valorAtual: valorEfetivo(a), precoMedio: a.pm,
+  }));
+  return {
+    patrimonioAtual: { semPrevidencia: DATA.totalSemPrev, comPrevidencia: DATA.totalComPrev, mesReferencia: DATA.mesRefLabel },
+    metas: { patrimonioAlvo: DATA.meta.valor, dividendosMensalAlvo: DATA.metaDividendos.valor },
+    posicoes: [
+      ...posicao(DATA.FII, 'FII'), ...posicao(DATA.BR, 'Ações BR'),
+      ...posicao(DATA.INTL, 'Ações Internacionais'), ...posicao(DATA.CRYPTO, 'Cripto'),
+    ],
+    rendaFixa: (DATA.RENDA_FIXA || []).map(a => ({ nome: a.nome, investido: a.investido, atual: valorEfetivoRendaFixa(a), vencimento: a.vencimento, indexador: a.indexador })),
+    saldos: (DATA.SALDOS || []).map(a => ({ nome: a.nome, categoria: a.categoriaLabel, valor: a.atual })),
+    patrimonioMensalHistorico: DATA.patrimonioMensal || [],
+    dividendosMensaisHistorico: DATA.dividendosMensais || [],
+    alertasAtivos: getAlertasAtivos().map(a => a.titulo),
+  };
+}
+
+let chatHistorico = [];
+
+function renderChatMensagens() {
+  const el = document.getElementById('chatMensagens');
+  if (!el) return;
+  if (!chatHistorico.length) {
+    el.innerHTML = `<div class="chat-empty">Nenhuma pergunta ainda — experimente perguntar algo sobre sua carteira.</div>`;
+    return;
+  }
+  el.innerHTML = chatHistorico.map(m => `
+    <div class="chat-msg">
+      <div class="chat-msg-pergunta">${escapeHtml(m.pergunta)}</div>
+      <div class="chat-msg-resposta" style="${m.erro ? 'color:var(--status-critical)' : ''}">${m.carregando ? 'Pensando…' : escapeHtml(m.resposta)}</div>
+    </div>`).join('');
+  el.scrollTop = el.scrollHeight;
+}
+
+async function enviarPerguntaChat(event) {
+  event.preventDefault();
+  const input = document.getElementById('chatInput');
+  const btn = document.getElementById('chatBtn');
+  const pergunta = input.value.trim();
+  if (!pergunta) return false;
+
+  chatHistorico.push({ pergunta, resposta: null, carregando: true });
+  renderChatMensagens();
+  input.value = '';
+  btn.disabled = true;
+
+  try {
+    const { data: { session } } = await sb.auth.getSession();
+    if (!session) throw new Error('Sessão expirada — faça login de novo.');
+    const contexto = coletarContextoChat();
+    const res = await fetch(`${SUPABASE_URL}/functions/v1/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+      body: JSON.stringify({ pergunta, contexto }),
+    });
+    const body = await res.json();
+    if (!res.ok || body.error) throw new Error(body.error || `Erro HTTP ${res.status}`);
+    chatHistorico[chatHistorico.length - 1] = { pergunta, resposta: body.resposta, carregando: false };
+  } catch (err) {
+    console.error(err);
+    chatHistorico[chatHistorico.length - 1] = { pergunta, resposta: 'Erro: ' + err.message, erro: true, carregando: false };
+  } finally {
+    btn.disabled = false;
+    renderChatMensagens();
+  }
+  return false;
+}
+
 function renderAll() {
   renderPatrimonioTiles();
   renderMeta();
@@ -2767,6 +2881,7 @@ function renderAll() {
   renderFundamentos();
   renderAlerts();
   renderResumoSemanal();
+  if (document.getElementById('chatMensagens') && !chatHistorico.length) renderChatMensagens();
 }
 window.addEventListener('resize', () => { if (DATA && document.getElementById('dash').style.display === 'block') renderTreemap(); });
 window.addEventListener('scroll', () => { document.getElementById('tooltip').style.display = 'none'; }, true);
