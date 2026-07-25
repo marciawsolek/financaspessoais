@@ -819,7 +819,7 @@ function calcularImpostoRenda() {
   return linhas;
 }
 
-async function loadAllData() {
+async function loadAllData(tentativa = 1) {
   const errEl = document.getElementById('loadError');
   errEl.style.display = 'none';
   try {
@@ -950,6 +950,15 @@ async function loadAllData() {
     autoFetchAoVivoSeNecessario();
   } catch (err) {
     console.error(err);
+    // Bug conhecido do Supabase: se o relógio do dispositivo está alguns segundos atrasado,
+    // a validação do token recém-emitido falha só na primeira tentativa ("JWT issued at
+    // future"). Um F5 manual resolve porque tenta de novo um pouco depois — então tentamos
+    // sozinhos aqui em vez de mostrar erro pro usuário.
+    const clockSkew = /issued at future/i.test(err.message || '');
+    if (clockSkew && tentativa < 4) {
+      await new Promise(r => setTimeout(r, 900 * tentativa));
+      return loadAllData(tentativa + 1);
+    }
     errEl.textContent = 'Erro ao carregar dados do Supabase: ' + (err.message || err);
     errEl.style.display = 'block';
   }
