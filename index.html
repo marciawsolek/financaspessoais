@@ -638,9 +638,9 @@
     </div>
     <div class="collapsible-body" id="riscoBody" style="display:none">
       <div style="font-size:12.5px;color:var(--text-muted);margin-bottom:12px;line-height:1.5">
-        Concentração (quanto cada posição pesa no patrimônio total, incluindo FGTS/Imobilizado) e volatilidade
-        histórica anualizada dos ativos com cotação de mercado. São medidas estatísticas simples — não é
-        recomendação de comprar, vender ou rebalancear.
+        Concentração (quanto cada posição pesa no patrimônio total, incluindo Imobilizado — FGTS e Previdência ficam
+        de fora por serem saldos de acesso restrito) e volatilidade histórica anualizada dos ativos com cotação de
+        mercado. São medidas estatísticas simples — não é recomendação de comprar, vender ou rebalancear.
       </div>
       <div id="riscoResumo" style="margin-bottom:12px"></div>
       <button class="row-action" id="btnRiscoVol" onclick="atualizarVolatilidadeRisco()">Calcular volatilidade</button>
@@ -1883,10 +1883,14 @@ function coletarPosicoesRisco() {
     const valor = valorEfetivoRendaFixa(a);
     if (valor > 0) linhas.push({ ticker: a.nome, categoria: 'Renda Fixa', valor, temHistorico: false });
   });
-  (DATA.SALDOS || []).forEach(a => {
-    const valor = Number(a.atual) || 0;
-    if (valor > 0) linhas.push({ ticker: a.nome, categoria: a.categoriaLabel, valor, temHistorico: false });
-  });
+  // FGTS e Previdência ficam fora da avaliação de risco: são saldos de acesso restrito/travado,
+  // não fazem parte da decisão de alocação/concentração da carteira "livre".
+  (DATA.SALDOS || [])
+    .filter(a => a.categoria !== 'FGTS' && a.categoria !== 'Previdencia')
+    .forEach(a => {
+      const valor = Number(a.atual) || 0;
+      if (valor > 0) linhas.push({ ticker: a.nome, categoria: a.categoriaLabel, valor, temHistorico: false });
+    });
   const total = linhas.reduce((s, l) => s + l.valor, 0);
   linhas.forEach(l => { l.peso = total > 0 ? l.valor / total : 0; });
   linhas.sort((a, b) => b.valor - a.valor);
