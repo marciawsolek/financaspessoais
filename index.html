@@ -549,6 +549,15 @@
     </div>
     <div class="card">
       <div id="divChart" class="div-chart"></div>
+      <div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--gridline);display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+        <button class="row-action" id="btnProventosFii" onclick="atualizarProventosFiiCvm()">Atualizar proventos de FII (CVM)</button>
+        <span id="proventosFiiStatus" style="font-size:12px;color:var(--text-muted)"></span>
+      </div>
+      <div style="font-size:11px;color:var(--text-muted);margin-top:6px;line-height:1.5">
+        Busca direto no Informe Mensal da CVM (fonte oficial e gratuita) e só preenche meses que ainda não têm
+        provento registrado, usando a quantidade atual de cotas — não sobrescreve nada já lançado, e para meses
+        antigos em que a quantidade era diferente o valor pode não bater exatamente.
+      </div>
     </div>
   </section>
 
@@ -1011,7 +1020,7 @@ async function loadAllData(tentativa = 1) {
   const errEl = document.getElementById('loadError');
   errEl.style.display = 'none';
   try {
-    const [posRes, rfRes, patRes, provRes, metaRes, dismissRes, opsRes, saldosRes, movRfRes, fundRes] = await Promise.all([
+    const [posRes, rfRes, patRes, provRes, metaRes, dismissRes, opsRes, saldosRes, movRfRes, fundRes, cnpjRes] = await Promise.all([
       sb.from('v_posicao_atual').select('*'),
       sb.from('v_renda_fixa_atual').select('*'),
       sb.from('v_patrimonio_mensal').select('*').order('mes_referencia'),
@@ -1022,6 +1031,7 @@ async function loadAllData(tentativa = 1) {
       sb.from('saldos_manuais').select('*').order('data', { ascending: false }).order('criado_em', { ascending: false }),
       sb.from('movimentacoes_rf').select('*').order('data'),
       sb.from('fundamentos_acoes').select('*'),
+      sb.from('ativos').select('id, cnpj').eq('categoria', 'FII'),
     ]);
     for (const r of [posRes, rfRes, patRes, provRes, metaRes, dismissRes]) if (r.error) throw r.error;
     // operacoes/saldos/movimentacoes/fundamentos são opcionais: se a tabela ainda não existir, segue sem ela em vez de travar tudo
@@ -1029,6 +1039,9 @@ async function loadAllData(tentativa = 1) {
     if (saldosRes.error) console.warn('Tabela saldos_manuais indisponível (rode supabase/saldos_manuais.sql):', saldosRes.error.message);
     if (movRfRes.error) console.warn('Tabela movimentacoes_rf indisponível (rode supabase/movimentacoes_rf.sql):', movRfRes.error.message);
     if (fundRes.error) console.warn('Tabela fundamentos_acoes indisponível (rode supabase/fundamentos_acoes.sql):', fundRes.error.message);
+
+    const cnpjPorAtivo = {};
+    (cnpjRes.error ? [] : (cnpjRes.data || [])).forEach(a => { cnpjPorAtivo[a.id] = a.cnpj; });
 
     const posicoes = posRes.data, rendaFixaRows = rfRes.data;
     const patrimonio = patRes.data, proventos = provRes.data;
@@ -1070,6 +1083,7 @@ async function loadAllData(tentativa = 1) {
         qtdBase, custoBase, // posição inicial, pra recalcular o lucro de cada venda (imposto)
         moeda: p.moeda_original, mes: mesLabel(p.mes_referencia),
         ops, realizado: calc.realizado,
+        cnpj: cnpjPorAtivo[p.ativo_id] || null, // usado pra cruzar com o Informe Mensal da CVM (proventos de FII)
       };
     });
 
@@ -1924,6 +1938,62 @@ function alertasPosicaoRisco(peso, vol) {
   else if (peso >= 0.10) alerts.push({ label: 'Concentração moderada', nivel: 'moderate' });
   if (vol != null && vol >= 0.40) alerts.push({ label: 'Alta volatilidade', nivel: 'moderate' });
   return alerts;
+}
+
+/* ---------------- Proventos de FII automatizados (Edge Function 'proventos-fii' -> CVM) ---------------- */
+
+async function buscarProventosFiiCvm(cnpjs) {
+  const { data: { session } } = await sb.auth.getSession();
+  if (!session) throw new Error('Sessão expirada — faça login de novo.');
+  const url = `${SUPABASE_URL}/functions/v1/proventos-fii?cnpjs=${encodeURIComponent(cnpjs.join(','))}`;
+  const res = await fetch(url, { headers: { Authorization: `Bearer ${session.access_token}` } });
+  const body = await res.json();
+  if (!res.ok || body.error) throw new Error(body.error || `Erro HTTP ${res.status}`);
+  return body; // { proventos: { cnpj: [{mes, rendimentoPorCota}] }, falhas: [...] }
+}
+
+async function atualizarProventosFiiCvm() {
+  const btn = document.getElementById('btnProventosFii');
+  const statusEl = document.getElementById('proventosFiiStatus');
+  const fiisComCnpj = (DATA.FII || []).filter(a => a.cnpj);
+  if (!fiisComCnpj.length) { statusEl.textContent = 'Nenhum FII com CNPJ cadastrado.'; return; }
+
+  btn.disabled = true; btn.textContent = 'Buscando na CVM…';
+  statusEl.style.color = 'var(--text-muted)';
+  statusEl.textContent = '';
+  try {
+    const cnpjs = [...new Set(fiisComCnpj.map(a => a.cnpj))];
+    const { proventos, falhas } = await buscarProventosFiiCvm(cnpjs);
+
+    const linhasNovas = [];
+    fiisComCnpj.forEach(a => {
+      const meses = proventos[a.cnpj] || [];
+      meses.forEach(m => {
+        const valor = m.rendimentoPorCota * a.qtd;
+        if (valor > 0) linhasNovas.push({ ativo_id: a.id, mes_referencia: m.mes + '-01', valor });
+      });
+    });
+
+    if (!linhasNovas.length) {
+      statusEl.textContent = 'Nenhum dado retornado pela CVM pros seus FIIs.';
+      return;
+    }
+
+    // proventos não tem coluna user_id — RLS é via join com ativos (ativo_id -> ativos.user_id)
+    const { error } = await sb.from('proventos')
+      .upsert(linhasNovas, { onConflict: 'ativo_id,mes_referencia', ignoreDuplicates: true });
+    if (error) throw error;
+
+    statusEl.style.color = 'var(--text-muted)';
+    statusEl.textContent = `${linhasNovas.length} meses verificados${falhas.length ? ` (${falhas.length} ano(s) com falha na CVM)` : ''} — recarregando…`;
+    await loadAllData();
+  } catch (err) {
+    console.error(err);
+    statusEl.textContent = 'Erro: ' + err.message;
+    statusEl.style.color = 'var(--status-critical)';
+  } finally {
+    btn.disabled = false; btn.textContent = 'Atualizar proventos de FII (CVM)';
+  }
 }
 
 async function atualizarVolatilidadeRisco() {
