@@ -553,10 +553,17 @@
         <button class="row-action" id="btnProventosFii" onclick="atualizarProventosFiiCvm()">Atualizar proventos de FII (CVM)</button>
         <span id="proventosFiiStatus" style="font-size:12px;color:var(--text-muted)"></span>
       </div>
-      <div style="font-size:11px;color:var(--text-muted);margin-top:6px;line-height:1.5">
-        Busca direto no Informe Mensal da CVM (fonte oficial e gratuita) e só preenche meses que ainda não têm
-        provento registrado, usando a quantidade atual de cotas — não sobrescreve nada já lançado, e para meses
-        antigos em que a quantidade era diferente o valor pode não bater exatamente.
+      <div style="margin-top:10px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+        <button class="row-action" id="btnProventosAcoes" onclick="atualizarProventosAcoes()">Atualizar proventos de Ações (Yahoo)</button>
+        <span id="proventosAcoesStatus" style="font-size:12px;color:var(--text-muted)"></span>
+      </div>
+      <div style="font-size:11px;color:var(--text-muted);margin-top:10px;line-height:1.55">
+        <strong>FIIs</strong>: Informe Mensal da CVM (fonte oficial). <strong>Ações BR e internacionais</strong>: histórico
+        de dividendos do Yahoo Finance — internacionais convertidos pelo câmbio da data de cada pagamento.
+        Ambos só preenchem meses que ainda não têm provento registrado (nunca sobrescrevem o que já existe) e usam a
+        quantidade atual de cotas/ações, então meses antigos com quantidade diferente podem não bater.
+        Valores são <strong>brutos</strong> na data-com: JCP tem 15% de IR retido na fonte e dividendos de ações
+        americanas têm 30% — o líquido que caiu na conta é menor.
       </div>
     </div>
   </section>
@@ -1993,6 +2000,78 @@ async function atualizarProventosFiiCvm() {
     statusEl.style.color = 'var(--status-critical)';
   } finally {
     btn.disabled = false; btn.textContent = 'Atualizar proventos de FII (CVM)';
+  }
+}
+
+/* ---------------- Proventos de Ações automatizados (Edge Function 'proventos-acoes' -> Yahoo) ---------------- */
+
+async function buscarProventosAcoesYahoo(symbols) {
+  const { data: { session } } = await sb.auth.getSession();
+  if (!session) throw new Error('Sessão expirada — faça login de novo.');
+  const url = `${SUPABASE_URL}/functions/v1/proventos-acoes?symbols=${encodeURIComponent(symbols.join(','))}&range=2y`;
+  const res = await fetch(url, { headers: { Authorization: `Bearer ${session.access_token}` } });
+  const body = await res.json();
+  if (!res.ok || body.error) throw new Error(body.error || `Erro HTTP ${res.status}`);
+  return body; // { proventos: [{symbol, moeda, dividendos:[{data, valorOriginal, valorBRL, fx}]}], falhas }
+}
+
+async function atualizarProventosAcoes() {
+  const btn = document.getElementById('btnProventosAcoes');
+  const statusEl = document.getElementById('proventosAcoesStatus');
+  const alvos = [
+    ...(DATA.BR || []).map(a => ({ ativo: a, symbol: yahooSymbolPara('Acao BR', a.ticker) })),
+    ...(DATA.INTL || []).map(a => ({ ativo: a, symbol: yahooSymbolPara('Acao Intl', a.ticker) })),
+  ].filter(x => x.symbol && x.ativo.qtd > 0);
+  if (!alvos.length) { statusEl.textContent = 'Nenhuma ação com posição pra consultar.'; return; }
+
+  btn.disabled = true; btn.textContent = 'Buscando…';
+  statusEl.style.color = 'var(--text-muted)';
+  statusEl.textContent = '';
+  try {
+    const { proventos, falhas } = await buscarProventosAcoesYahoo(alvos.map(x => x.symbol));
+    const porSymbol = {};
+    (proventos || []).forEach(p => { porSymbol[p.symbol] = p; });
+
+    // Um mesmo mês pode ter mais de um pagamento (ITUB3/BBDC3 pagam quase todo mês,
+    // às vezes dividendo + JCP separados) — soma tudo antes de gravar, porque a
+    // tabela proventos guarda um único valor por ativo/mês.
+    const linhasNovas = [];
+    let semCambio = 0;
+    alvos.forEach(({ ativo, symbol }) => {
+      const p = porSymbol[symbol];
+      if (!p) return;
+      const porMes = {};
+      (p.dividendos || []).forEach(d => {
+        if (d.valorBRL == null) { semCambio++; return; }
+        const mes = d.data.slice(0, 7);
+        porMes[mes] = (porMes[mes] || 0) + d.valorBRL * ativo.qtd;
+      });
+      Object.entries(porMes).forEach(([mes, valor]) => {
+        if (valor > 0) linhasNovas.push({ ativo_id: ativo.id, mes_referencia: mes + '-01', valor });
+      });
+    });
+
+    if (!linhasNovas.length) {
+      statusEl.textContent = 'Nenhum dividendo retornado pelo Yahoo pras suas ações.';
+      return;
+    }
+
+    // proventos não tem coluna user_id — RLS é via join com ativos
+    const { error } = await sb.from('proventos')
+      .upsert(linhasNovas, { onConflict: 'ativo_id,mes_referencia', ignoreDuplicates: true });
+    if (error) throw error;
+
+    statusEl.style.color = 'var(--text-muted)';
+    statusEl.textContent = `${linhasNovas.length} meses verificados` +
+      (falhas && falhas.length ? ` (${falhas.length} ativo(s) sem dados)` : '') +
+      (semCambio ? ` · ${semCambio} pagamento(s) sem câmbio da data` : '') + ' — recarregando…';
+    await loadAllData();
+  } catch (err) {
+    console.error(err);
+    statusEl.textContent = 'Erro: ' + err.message;
+    statusEl.style.color = 'var(--status-critical)';
+  } finally {
+    btn.disabled = false; btn.textContent = 'Atualizar proventos de Ações (Yahoo)';
   }
 }
 
