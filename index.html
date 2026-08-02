@@ -405,6 +405,32 @@
   .sim-resultado .destaque { font-size: 22px; font-weight: 700; letter-spacing: -0.01em; display:block; margin: 2px 0; }
   .sim-nota { font-size: 12px; color: var(--text-muted); line-height: 1.5; }
 
+  /* ---------- Navegação entre Investimentos / Orçamento ---------- */
+  .view-tabs { display:flex; gap:6px; background: var(--surface); border:1px solid var(--border); border-radius:12px; padding:4px; width:fit-content; margin-bottom:24px; }
+  .view-tab-btn { font-size:13px; font-weight:500; padding:8px 16px; border-radius:9px; border:none; background:transparent; color:var(--text-secondary); cursor:pointer; }
+  .view-tab-btn.active { background: var(--text-primary); color: var(--surface); font-weight:600; }
+
+  /* ---------- Orçamento doméstico ---------- */
+  .orc-tiles { display:grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+  @media (max-width: 760px) { .orc-tiles { grid-template-columns: 1fr; } }
+  .orc-chart { display:flex; align-items:flex-end; gap: 16px; height: 200px; padding-top: 8px; overflow-x:auto; }
+  .orc-chart-col { display:flex; flex-direction:column; align-items:center; height:100%; justify-content:flex-end; flex:none; min-width:50px; }
+  .orc-bar-pair { display:flex; align-items:flex-end; gap:4px; height:100%; }
+  .orc-bar { width: 16px; border-radius: 3px 3px 0 0; min-height: 2px; cursor: default; }
+  .orc-bar.receita { background: var(--status-good); }
+  .orc-bar.despesa { background: var(--status-critical); }
+  .orc-chart-label { font-size: 10.5px; color: var(--text-muted); margin-top: 8px; white-space:nowrap; }
+  .orc-rank-row { padding: 9px 0; border-bottom: 1px solid var(--gridline); }
+  .orc-rank-row:last-child { border-bottom: none; }
+  .orc-rank-top { display:flex; justify-content:space-between; font-size: 13px; margin-bottom: 5px; gap:10px; }
+  .orc-rank-top .cat { font-weight:500; }
+  .orc-rank-bar-track { height: 6px; border-radius: 999px; background: var(--gridline); overflow: hidden; }
+  .orc-rank-bar-fill { height: 100%; background: var(--series-1); border-radius: 999px; }
+  .orc-chip { font-size: 10px; padding: 2px 7px; border-radius: 999px; background: color-mix(in srgb, var(--series-1) 14%, transparent); color: var(--series-1); margin-left: 6px; white-space:nowrap; }
+  tbody tr.orc-row-click { cursor: pointer; }
+  .orc-empty { font-size: 13px; color: var(--text-muted); padding: 20px 4px; text-align:center; }
+  .orc-share-toggle { display:flex; align-items:center; gap:8px; font-size:13px; color:var(--text-secondary); margin-top:4px; }
+
   /* ---------- Ajustes para celular ---------- */
   @media (max-width: 640px) {
     #dash { padding: 16px 12px 60px; }
@@ -456,7 +482,7 @@
 <div id="dash">
   <header class="top">
     <div>
-      <h1>Painel de Investimentos</h1>
+      <h1 id="pageTitle">Painel de Investimentos</h1>
       <div class="sub" id="headerSub">Carregando dados do Supabase…</div>
     </div>
     <div class="top-controls">
@@ -464,6 +490,13 @@
       <button class="theme-toggle" onclick="doLogout()">Sair</button>
     </div>
   </header>
+
+  <div class="view-tabs">
+    <button class="view-tab-btn active" id="viewTabInvestimentos" onclick="switchView('investimentos')">Investimentos</button>
+    <button class="view-tab-btn" id="viewTabOrcamento" onclick="switchView('orcamento')">Orçamento</button>
+  </div>
+
+  <div id="viewInvestimentos">
   <div id="loadError" class="loading-note" style="display:none;color:var(--status-critical);"></div>
 
   <!-- Stat tiles -->
@@ -767,6 +800,157 @@
     Dados ao vivo do Supabase — editar quantidade/PM ainda é feito no banco; encerrar ativo e editar a meta já dá pra fazer aqui.<br>
     Cotações ao vivo (Edge Function), análise técnica (médias móveis, RSI, Fibonacci) e fundamentalista via IA entram nas próximas etapas.
   </footer>
+  </div><!-- /viewInvestimentos -->
+
+  <!-- ===================== ORÇAMENTO DOMÉSTICO ===================== -->
+  <div id="viewOrcamento" style="display:none">
+    <div id="orcLoadError" class="loading-note" style="display:none;color:var(--status-critical);"></div>
+    <div id="orcEmptyState" class="orc-empty" style="display:none">
+      Ainda não há lançamentos na tabela <code>lancamentos_domesticos</code>. Rode
+      <code>supabase/lancamentos_domesticos.sql</code> e depois
+      <code>supabase/seed_lancamentos_domesticos.sql</code> no editor SQL do Supabase para trazer o
+      histórico importado da planilha, ou lance o primeiro item manualmente no formulário abaixo.
+    </div>
+
+    <div id="orcConteudo" style="display:none">
+      <!-- Seletor de mês -->
+      <section style="margin-bottom:20px;">
+        <label style="font-size:12.5px;color:var(--text-secondary);display:flex;flex-direction:column;gap:5px;max-width:220px;">
+          Mês
+          <select id="orcMesSelect" onchange="renderOrcamento()"></select>
+        </label>
+      </section>
+
+      <!-- Tiles do mês -->
+      <section>
+        <div class="orc-tiles">
+          <div class="tile">
+            <div class="label">Receita do mês</div>
+            <div id="orcReceitaValue" class="value tabular">—</div>
+          </div>
+          <div class="tile">
+            <div class="label">Despesa do mês</div>
+            <div id="orcDespesaValue" class="value tabular">—</div>
+          </div>
+          <div class="tile">
+            <div class="label">Saldo do mês</div>
+            <div id="orcSaldoValue" class="value tabular">—</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Gráfico receita x despesa no ano -->
+      <section>
+        <div class="section-head"><h2>Receita x despesa no período</h2></div>
+        <div class="card">
+          <div class="orc-chart" id="orcChart"></div>
+          <div class="legend">
+            <div class="legend-item"><span class="legend-dot" style="background:var(--status-good)"></span>Receita</div>
+            <div class="legend-item"><span class="legend-dot" style="background:var(--status-critical)"></span>Despesa</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Ranking de categorias -->
+      <section>
+        <div class="section-head"><h2>Categorias que mais pesaram no mês</h2></div>
+        <div class="card" id="orcRankingCard"></div>
+      </section>
+
+      <!-- Tabela categoria x mês -->
+      <section>
+        <div class="section-head"><h2>Categorias do mês</h2></div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Categoria</th><th>Grupo</th><th>Total</th></tr></thead>
+            <tbody id="orcCategoriaTableBody"></tbody>
+          </table>
+        </div>
+        <div style="font-size:11.5px;color:var(--text-muted);margin-top:8px;">Clique numa linha para ver os lançamentos que compõem o total.</div>
+      </section>
+
+      <!-- Painel divisão com Luciano -->
+      <section>
+        <div class="section-head collapsible" onclick="toggleSection('luciano')">
+          <div class="section-title-wrap">
+            <h2>Divisão de contas com Luciano</h2>
+            <span class="section-summary" id="lucianoSummary"></span>
+          </div>
+          <span class="collapse-chevron" id="lucianoChevron">▾</span>
+        </div>
+        <div class="collapsible-body" id="lucianoBody" style="display:none">
+          <div class="ta-grid" id="lucianoStats"></div>
+          <div class="ops-lista-wrap">
+            <div class="ops-lista-titulo">Despesas compartilhadas do mês</div>
+            <div id="lucianoLista"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Formulário de novo lançamento -->
+      <section>
+        <div class="section-head"><h2>Novo lançamento</h2></div>
+        <div class="card">
+          <form id="orcForm" onsubmit="salvarLancamento(event)">
+            <div class="ops-grid">
+              <label>Tipo
+                <select id="orcTipo" required onchange="atualizarFormOrcamento()">
+                  <option value="despesa">Despesa</option>
+                  <option value="receita">Receita</option>
+                </select>
+              </label>
+              <label>Data
+                <input type="date" id="orcData" required>
+              </label>
+              <label>Categoria
+                <input type="text" id="orcCategoria" list="orcCategoriasList" placeholder="Ex: Alimentação" required>
+                <datalist id="orcCategoriasList"></datalist>
+              </label>
+              <label>Grupo (opcional)
+                <select id="orcGrupo">
+                  <option value="">—</option>
+                  <option>Casa</option><option>Alimentação</option><option>Saúde</option>
+                  <option>Beleza/Autocuidado</option><option>Vestuário</option><option>Lazer</option>
+                  <option>Educação</option><option>Transporte</option><option>Presentes/Doações</option>
+                  <option>Pet</option><option>Pais</option><option>Outros</option>
+                </select>
+              </label>
+              <label>Valor (R$)
+                <input type="number" id="orcValor" step="any" min="0.01" placeholder="0,00" required>
+              </label>
+              <label>Descrição (opcional)
+                <input type="text" id="orcDescricao" placeholder="Ex: mercado do mês">
+              </label>
+            </div>
+            <div class="orc-share-toggle" id="orcShareWrap" style="display:none">
+              <label style="display:flex;align-items:center;gap:6px;">
+                <input type="checkbox" id="orcCompartilhado" onchange="atualizarFormOrcamento()"> Compartilhado com Luciano (divide 50/50)
+              </label>
+              <label id="orcPagoPorWrap" style="display:none;align-items:center;gap:6px;">
+                Pago por
+                <select id="orcPagoPor">
+                  <option value="marcia">Marcia</option>
+                  <option value="luciano">Luciano</option>
+                </select>
+              </label>
+            </div>
+            <div class="ops-submit" style="margin-top:14px;">
+              <button type="submit" class="btn-primary" id="orcSalvarBtn" style="width:auto;padding:10px 20px;">Adicionar lançamento</button>
+            </div>
+            <div class="ops-erro" id="orcErro" style="display:none;"></div>
+          </form>
+        </div>
+      </section>
+
+      <!-- Lista de lançamentos do mês -->
+      <section>
+        <div class="section-head"><h2>Lançamentos do mês</h2></div>
+        <div class="card">
+          <div id="orcListaMes"></div>
+        </div>
+      </section>
+    </div>
+  </div><!-- /viewOrcamento -->
 </div>
 
 <!-- ===================== MODAL DE OPERAÇÕES (compra/venda) ===================== -->
@@ -850,6 +1034,20 @@
       <div class="ops-lista-titulo">Movimentações lançadas</div>
       <div id="rfLista"></div>
     </div>
+  </div>
+</div>
+
+<!-- ===================== MODAL DE LANÇAMENTOS (drill-down categoria/mês) ===================== -->
+<div id="lancOverlay" class="modal-overlay" onclick="if(event.target===this) fecharLancamentos()">
+  <div class="modal-card">
+    <div class="modal-head">
+      <div>
+        <h2 id="lancTitulo">Lançamentos</h2>
+        <div class="modal-sub" id="lancSub"></div>
+      </div>
+      <button class="row-action" onclick="fecharLancamentos()">Fechar</button>
+    </div>
+    <div id="lancLista"></div>
   </div>
 </div>
 
@@ -3321,6 +3519,294 @@ function renderAll() {
 }
 window.addEventListener('resize', () => { if (DATA && document.getElementById('dash').style.display === 'block') renderTreemap(); });
 window.addEventListener('scroll', () => { document.getElementById('tooltip').style.display = 'none'; }, true);
+
+/* ==================== ORÇAMENTO DOMÉSTICO ==================== */
+let DATA_ORC = null; // { lancamentos: [...] }
+let orcamentoCarregado = false;
+let orcMesAtual = null; // 'YYYY-MM'
+let orcCatsAtuais = []; // categorias renderizadas na tabela do mês, pro drill-down por índice
+
+function switchView(view) {
+  const isInv = view === 'investimentos';
+  document.getElementById('viewInvestimentos').style.display = isInv ? 'block' : 'none';
+  document.getElementById('viewOrcamento').style.display = isInv ? 'none' : 'block';
+  document.getElementById('viewTabInvestimentos').classList.toggle('active', isInv);
+  document.getElementById('viewTabOrcamento').classList.toggle('active', !isInv);
+  document.getElementById('pageTitle').textContent = isInv ? 'Painel de Investimentos' : 'Orçamento doméstico';
+  if (!isInv && !orcamentoCarregado) loadOrcamentoData();
+}
+
+async function loadOrcamentoData() {
+  orcamentoCarregado = true;
+  const errEl = document.getElementById('orcLoadError');
+  errEl.style.display = 'none';
+  try {
+    const { data, error } = await sb.from('lancamentos_domesticos').select('*').order('data');
+    if (error) throw error;
+    DATA_ORC = { lancamentos: data || [] };
+    document.getElementById('orcEmptyState').style.display = DATA_ORC.lancamentos.length ? 'none' : 'block';
+    document.getElementById('orcConteudo').style.display = '';
+    popularMesesOrcamento();
+    popularCategoriasDatalist();
+    const dataInput = document.getElementById('orcData');
+    if (!dataInput.value) dataInput.value = new Date().toISOString().slice(0, 10);
+    atualizarFormOrcamento();
+    renderOrcamento();
+  } catch (err) {
+    console.error(err);
+    orcamentoCarregado = false; // deixa tentar de novo se ela trocar de aba de novo
+    if (/relation .* does not exist/i.test(err.message || '')) {
+      const el = document.getElementById('orcEmptyState');
+      el.textContent = 'A tabela lancamentos_domesticos ainda não existe no banco — rode supabase/lancamentos_domesticos.sql no editor SQL do Supabase.';
+      el.style.display = 'block';
+    } else {
+      errEl.textContent = 'Erro ao carregar orçamento: ' + (err.message || err);
+      errEl.style.display = 'block';
+    }
+  }
+}
+
+function popularMesesOrcamento() {
+  let meses = [...new Set(DATA_ORC.lancamentos.map(l => l.data.slice(0, 7)))].sort();
+  if (!meses.length) meses = [new Date().toISOString().slice(0, 7)];
+  const sel = document.getElementById('orcMesSelect');
+  sel.innerHTML = meses.map(m => `<option value="${m}">${mesLabel(m + '-01')}</option>`).join('');
+  const manterAtual = orcMesAtual && meses.includes(orcMesAtual);
+  orcMesAtual = manterAtual ? orcMesAtual : meses[meses.length - 1];
+  sel.value = orcMesAtual;
+}
+
+function popularCategoriasDatalist() {
+  const cats = [...new Set(DATA_ORC.lancamentos.map(l => l.categoria))].sort();
+  document.getElementById('orcCategoriasList').innerHTML = cats.map(c => `<option value="${escapeHtml(c)}">`).join('');
+}
+
+function atualizarFormOrcamento() {
+  const tipo = document.getElementById('orcTipo').value;
+  document.getElementById('orcShareWrap').style.display = tipo === 'despesa' ? 'flex' : 'none';
+  const compartilhado = document.getElementById('orcCompartilhado').checked;
+  document.getElementById('orcPagoPorWrap').style.display = compartilhado ? 'flex' : 'none';
+}
+
+function lancamentosDoMes(mes) {
+  return DATA_ORC.lancamentos.filter(l => l.data.slice(0, 7) === mes);
+}
+
+function agruparPorCategoria(lista) {
+  const map = {};
+  lista.forEach(l => {
+    if (!map[l.categoria]) map[l.categoria] = { categoria: l.categoria, grupo: l.grupo, total: 0, itens: [] };
+    map[l.categoria].total += Number(l.valor);
+    map[l.categoria].itens.push(l);
+  });
+  return Object.values(map);
+}
+
+function renderOrcamento() {
+  if (!DATA_ORC) return;
+  orcMesAtual = document.getElementById('orcMesSelect').value || orcMesAtual;
+  const doMes = lancamentosDoMes(orcMesAtual);
+  const receitas = doMes.filter(l => l.tipo === 'receita');
+  const despesas = doMes.filter(l => l.tipo === 'despesa');
+  const totalReceita = receitas.reduce((s, l) => s + Number(l.valor), 0);
+  const totalDespesa = despesas.reduce((s, l) => s + Number(l.valor), 0);
+  document.getElementById('orcReceitaValue').textContent = brl(totalReceita);
+  document.getElementById('orcDespesaValue').textContent = brl(totalDespesa);
+  const saldo = totalReceita - totalDespesa;
+  const saldoEl = document.getElementById('orcSaldoValue');
+  saldoEl.textContent = brl(saldo);
+  saldoEl.style.color = saldo >= 0 ? 'var(--good)' : 'var(--status-critical)';
+
+  renderOrcChart();
+  renderOrcRanking(despesas);
+  renderOrcCategoriaTable(agruparPorCategoria(doMes).sort((a, b) => b.total - a.total));
+  renderLucianoPanel(doMes);
+  renderOrcListaMes(doMes);
+}
+
+function renderOrcChart() {
+  const meses = [...new Set(DATA_ORC.lancamentos.map(l => l.data.slice(0, 7)))].sort();
+  const porMes = meses.map(m => {
+    const l = lancamentosDoMes(m);
+    return {
+      mes: m,
+      receita: l.filter(x => x.tipo === 'receita').reduce((s, x) => s + Number(x.valor), 0),
+      despesa: l.filter(x => x.tipo === 'despesa').reduce((s, x) => s + Number(x.valor), 0),
+    };
+  });
+  const max = Math.max(1, ...porMes.flatMap(m => [m.receita, m.despesa]));
+  const el = document.getElementById('orcChart');
+  if (!porMes.length) { el.innerHTML = '<div class="orc-empty">Sem dados ainda.</div>'; return; }
+  el.innerHTML = porMes.map(m => `
+    <div class="orc-chart-col" title="${mesLabel(m.mes + '-01')}: receita ${brl(m.receita)} · despesa ${brl(m.despesa)}">
+      <div class="orc-bar-pair">
+        <div class="orc-bar receita" style="height:${Math.max(2, m.receita / max * 160)}px"></div>
+        <div class="orc-bar despesa" style="height:${Math.max(2, m.despesa / max * 160)}px"></div>
+      </div>
+      <div class="orc-chart-label">${mesLabel(m.mes + '-01')}</div>
+    </div>
+  `).join('');
+}
+
+function renderOrcRanking(despesas) {
+  const cats = agruparPorCategoria(despesas).sort((a, b) => b.total - a.total).slice(0, 8);
+  const card = document.getElementById('orcRankingCard');
+  if (!cats.length) { card.innerHTML = '<div class="orc-empty">Sem despesas lançadas neste mês.</div>'; return; }
+  const max = cats[0].total || 1;
+  card.innerHTML = cats.map(c => `
+    <div class="orc-rank-row">
+      <div class="orc-rank-top"><span class="cat">${escapeHtml(c.categoria)}</span><span class="tabular">${brl(c.total)}</span></div>
+      <div class="orc-rank-bar-track"><div class="orc-rank-bar-fill" style="width:${(c.total / max * 100).toFixed(1)}%"></div></div>
+    </div>
+  `).join('');
+}
+
+function renderOrcCategoriaTable(cats) {
+  orcCatsAtuais = cats;
+  const tbody = document.getElementById('orcCategoriaTableBody');
+  if (!cats.length) { tbody.innerHTML = '<tr><td colspan="3" class="orc-empty">Nenhum lançamento neste mês.</td></tr>'; return; }
+  tbody.innerHTML = cats.map((c, i) => {
+    const tipo = c.itens[0].tipo;
+    const compartilhado = c.itens.some(it => it.compartilhado_com_luciano);
+    return `
+    <tr class="orc-row-click" onclick="abrirLancamentosIdx(${i})">
+      <td class="ticker-name">${escapeHtml(c.categoria)}${compartilhado ? '<span class="orc-chip">com Luciano</span>' : ''}</td>
+      <td>${escapeHtml(c.grupo || '—')}</td>
+      <td class="tabular" style="${tipo === 'receita' ? 'color:var(--good)' : ''}">${brl(c.total)}</td>
+    </tr>`;
+  }).join('');
+}
+
+function abrirLancamentosIdx(i) {
+  const c = orcCatsAtuais[i];
+  if (!c) return;
+  abrirLancamentosLista(`${c.categoria} — ${mesLabel(orcMesAtual + '-01')}`, `${c.itens.length} lançamento(s) · total ${brl(c.total)}`, c.itens);
+}
+
+function abrirLancamentosLista(titulo, sub, itens) {
+  document.getElementById('lancTitulo').textContent = titulo;
+  document.getElementById('lancSub').textContent = sub;
+  const ordenados = [...itens].sort((a, b) => String(b.data).localeCompare(String(a.data)));
+  const lista = document.getElementById('lancLista');
+  lista.innerHTML = !ordenados.length ? '<div class="op-vazio">Nenhum lançamento.</div>' : ordenados.map(l => `
+    <div class="op-row">
+      <div>
+        <span class="op-tag ${l.tipo === 'receita' ? 'compra' : 'venda'}">${l.tipo === 'receita' ? 'Receita' : 'Despesa'}</span>
+        <span style="margin-left:8px;">${fmtDate(l.data)}${l.descricao ? ' · ' + escapeHtml(l.descricao) : ''}</span>
+        ${l.compartilhado_com_luciano ? `<span class="orc-chip">${l.pago_por === 'luciano' ? 'pago por Luciano' : 'pago por Marcia'}</span>` : ''}
+      </div>
+      <div style="display:flex;align-items:center;gap:10px;">
+        <span class="tabular">${brl(Number(l.valor))}</span>
+        <button class="row-action" onclick="excluirLancamento('${l.id}')">Excluir</button>
+      </div>
+    </div>
+  `).join('');
+  document.getElementById('lancOverlay').classList.add('open');
+}
+function fecharLancamentos() {
+  document.getElementById('lancOverlay').classList.remove('open');
+}
+
+// Saldo é calculado sobre TODO o histórico (não só o mês selecionado) — é uma
+// dívida que se acumula mês a mês, igual à lógica da planilha original.
+function renderLucianoPanel(doMesLancamentos) {
+  const todasCompartilhadas = DATA_ORC.lancamentos.filter(l => l.compartilhado_com_luciano);
+  const totalGeral = todasCompartilhadas.reduce((s, l) => s + Number(l.valor), 0);
+  const pagoMarciaGeral = todasCompartilhadas.filter(l => l.pago_por === 'marcia').reduce((s, l) => s + Number(l.valor), 0);
+  const pagoLucianoGeral = todasCompartilhadas.filter(l => l.pago_por === 'luciano').reduce((s, l) => s + Number(l.valor), 0);
+  const metadeGeral = totalGeral / 2;
+  const saldoMarcia = pagoMarciaGeral - metadeGeral; // positivo = Luciano deve pra Marcia
+
+  document.getElementById('lucianoSummary').textContent = !todasCompartilhadas.length
+    ? 'Nenhuma despesa compartilhada lançada ainda'
+    : (Math.abs(saldoMarcia) < 0.01 ? 'Contas em dia' : (saldoMarcia > 0 ? `Luciano deve ${brl(saldoMarcia)}` : `Marcia deve ${brl(-saldoMarcia)}`));
+
+  document.getElementById('lucianoStats').innerHTML = `
+    <div class="ta-stat"><div class="ta-label">Total compartilhado (histórico)</div><div class="ta-value tabular">${brl(totalGeral)}</div></div>
+    <div class="ta-stat"><div class="ta-label">Pago por Marcia</div><div class="ta-value tabular">${brl(pagoMarciaGeral)}</div></div>
+    <div class="ta-stat"><div class="ta-label">Pago por Luciano</div><div class="ta-value tabular">${brl(pagoLucianoGeral)}</div></div>
+    <div class="ta-stat"><div class="ta-label">Cota de cada um (50%)</div><div class="ta-value tabular">${brl(metadeGeral)}</div></div>
+    <div class="ta-stat"><div class="ta-label">${saldoMarcia >= 0 ? 'Luciano deve a Marcia' : 'Marcia deve a Luciano'}</div><div class="ta-value tabular" style="color:var(--series-1)">${brl(Math.abs(saldoMarcia))}</div></div>
+  `;
+
+  const compartilhadasMes = doMesLancamentos.filter(l => l.compartilhado_com_luciano);
+  const lista = document.getElementById('lucianoLista');
+  lista.innerHTML = !compartilhadasMes.length ? '<div class="op-vazio">Nenhuma despesa compartilhada neste mês.</div>' :
+    [...compartilhadasMes].sort((a, b) => String(b.data).localeCompare(String(a.data))).map(l => `
+    <div class="op-row">
+      <div>${escapeHtml(l.categoria)}${l.descricao ? ' · ' + escapeHtml(l.descricao) : ''} <span class="orc-chip">${l.pago_por === 'luciano' ? 'Luciano' : 'Marcia'} pagou</span></div>
+      <div class="tabular">${brl(Number(l.valor))}</div>
+    </div>
+  `).join('');
+}
+
+function renderOrcListaMes(doMes) {
+  const el = document.getElementById('orcListaMes');
+  el.innerHTML = !doMes.length ? '<div class="op-vazio">Nenhum lançamento neste mês.</div>' :
+    [...doMes].sort((a, b) => String(b.data).localeCompare(String(a.data))).map(l => `
+    <div class="op-row">
+      <div>
+        <span class="op-tag ${l.tipo === 'receita' ? 'compra' : 'venda'}">${l.tipo === 'receita' ? 'Receita' : 'Despesa'}</span>
+        <span style="margin-left:8px;">${fmtDate(l.data)} · ${escapeHtml(l.categoria)}${l.descricao ? ' · ' + escapeHtml(l.descricao) : ''}</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px;">
+        <span class="tabular">${brl(Number(l.valor))}</span>
+        <button class="row-action" onclick="excluirLancamento('${l.id}')">Excluir</button>
+      </div>
+    </div>
+  `).join('');
+}
+
+async function salvarLancamento(event) {
+  event.preventDefault();
+  const btn = document.getElementById('orcSalvarBtn');
+  const erroEl = document.getElementById('orcErro');
+  erroEl.style.display = 'none';
+  const tipo = document.getElementById('orcTipo').value;
+  const data = document.getElementById('orcData').value;
+  const categoria = document.getElementById('orcCategoria').value.trim();
+  const grupo = document.getElementById('orcGrupo').value || null;
+  const valor = parseFloat(document.getElementById('orcValor').value);
+  const descricao = document.getElementById('orcDescricao').value.trim() || null;
+  const compartilhado = tipo === 'despesa' && document.getElementById('orcCompartilhado').checked;
+  const pagoPor = compartilhado ? document.getElementById('orcPagoPor').value : null;
+  if (!data || !categoria || !(valor > 0)) {
+    erroEl.textContent = 'Preencha data, categoria e valor (maior que zero).';
+    erroEl.style.display = 'block';
+    return;
+  }
+  btn.disabled = true; btn.textContent = 'Salvando…';
+  try {
+    const { data: { user } } = await sb.auth.getUser();
+    const { error } = await sb.from('lancamentos_domesticos').insert({
+      user_id: user.id, data, tipo, categoria, grupo, valor, descricao,
+      pago_por: pagoPor, compartilhado_com_luciano: compartilhado, origem: 'manual',
+    });
+    if (error) throw error;
+    const mesLancado = data.slice(0, 7);
+    document.getElementById('orcForm').reset();
+    document.getElementById('orcData').value = new Date().toISOString().slice(0, 10);
+    atualizarFormOrcamento();
+    orcamentoCarregado = false;
+    orcMesAtual = mesLancado; // mostra o mês do lançamento recém-adicionado, não pula pro mais recente
+    await loadOrcamentoData();
+  } catch (err) {
+    console.error(err);
+    erroEl.textContent = 'Erro ao salvar: ' + (err.message || err);
+    erroEl.style.display = 'block';
+  } finally {
+    btn.disabled = false; btn.textContent = 'Adicionar lançamento';
+  }
+}
+
+async function excluirLancamento(id) {
+  if (!confirm('Excluir este lançamento?')) return;
+  const { error } = await sb.from('lancamentos_domesticos').delete().eq('id', id);
+  if (error) { alert('Erro ao excluir: ' + error.message); return; }
+  fecharLancamentos();
+  orcamentoCarregado = false;
+  await loadOrcamentoData();
+}
 
 checkSession();
 </script>
