@@ -5,6 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Painel de Investimentos</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<!-- leitor de planilha, usado só na importação do extrato de proventos da B3 -->
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <style>
   :root {
     color-scheme: light;
@@ -564,6 +566,21 @@
         quantidade atual de cotas/ações, então meses antigos com quantidade diferente podem não bater.
         Valores são <strong>brutos</strong> na data-com: JCP tem 15% de IR retido na fonte e dividendos de ações
         americanas têm 30% — o líquido que caiu na conta é menor.
+      </div>
+
+      <div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--gridline)">
+        <div style="font-size:13px;font-weight:600;margin-bottom:4px">Importar extrato oficial da B3</div>
+        <div style="font-size:11.5px;color:var(--text-muted);margin-bottom:10px;line-height:1.55">
+          Baixe o extrato de proventos em <strong>investidor.b3.com.br</strong> (Excel ou CSV) e solte o arquivo aqui.
+          São os valores <strong>reais e líquidos</strong> que caíram na conta — melhores que as estimativas acima.
+          Nada é gravado antes de você conferir a prévia.
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+          <input type="file" id="b3File" accept=".xlsx,.xls,.csv" onchange="lerExtratoB3(event)"
+                 style="font-size:12.5px;color:var(--text-secondary);max-width:100%">
+          <span id="b3Status" style="font-size:12px;color:var(--text-muted)"></span>
+        </div>
+        <div id="b3Preview" style="margin-top:12px"></div>
       </div>
     </div>
   </section>
@@ -1945,6 +1962,229 @@ function alertasPosicaoRisco(peso, vol) {
   else if (peso >= 0.10) alerts.push({ label: 'Concentração moderada', nivel: 'moderate' });
   if (vol != null && vol >= 0.40) alerts.push({ label: 'Alta volatilidade', nivel: 'moderate' });
   return alerts;
+}
+
+/* ---------------- Importação do extrato oficial de proventos da B3 ---------------- */
+
+// O layout do arquivo da B3 pode mudar (e varia entre "proventos recebidos" e
+// "informe de rendimentos"), então as colunas são detectadas pelo NOME do cabeçalho
+// em vez de posição fixa. Cada grupo lista sinônimos aceitos, em ordem de preferência.
+const B3_COLUNAS = {
+  produto: ['produto', 'ativo', 'papel', 'ticker', 'codigo', 'código', 'especificacao', 'especificação'],
+  data:    ['data do pagamento', 'data pagamento', 'pagamento', 'data com', 'data'],
+  // valor líquido primeiro: é o que efetivamente caiu na conta (bruto ainda tem IR a reter)
+  valor:   ['valor líquido', 'valor liquido', 'líquido', 'liquido', 'valor total líquido',
+            'valor total liquido', 'valor total', 'valor bruto', 'valor'],
+  tipo:    ['tipo de evento', 'evento', 'tipo', 'movimentação', 'movimentacao'],
+};
+
+function normalizarCabecalho(s) {
+  return String(s == null ? '' : s).trim().toLowerCase()
+    .normalize('NFD').replace(/[̀-ͯ]/g, ''); // tira acento pra comparar
+}
+
+// Acha o índice da coluna cujo cabeçalho bate com um dos sinônimos (match por "contém",
+// pra tolerar variações tipo "Valor líquido (R$)").
+function acharColuna(cabecalhos, sinonimos) {
+  const norm = cabecalhos.map(normalizarCabecalho);
+  for (const alvo of sinonimos) {
+    const alvoNorm = normalizarCabecalho(alvo);
+    const exato = norm.indexOf(alvoNorm);
+    if (exato >= 0) return exato;
+  }
+  for (const alvo of sinonimos) {
+    const alvoNorm = normalizarCabecalho(alvo);
+    const parcial = norm.findIndex(c => c.includes(alvoNorm));
+    if (parcial >= 0) return parcial;
+  }
+  return -1;
+}
+
+// A B3 costuma ter linhas de título/branco antes do cabeçalho real — procura a primeira
+// linha que contenha pelo menos um "produto/ativo" e uma "data".
+function acharLinhaCabecalho(linhas) {
+  for (let i = 0; i < Math.min(linhas.length, 15); i++) {
+    const linha = (linhas[i] || []).map(normalizarCabecalho);
+    if (!linha.length) continue;
+    const temProduto = B3_COLUNAS.produto.some(s => linha.some(c => c.includes(normalizarCabecalho(s))));
+    const temData = B3_COLUNAS.data.some(s => linha.some(c => c.includes(normalizarCabecalho(s))));
+    if (temProduto && temData) return i;
+  }
+  return -1;
+}
+
+function parseDataFlexivel(v) {
+  if (v == null || v === '') return null;
+  if (v instanceof Date && !isNaN(v.getTime())) return v.toISOString().slice(0, 10);
+  const s = String(v).trim();
+  let m = s.match(/^(\d{2})\/(\d{2})\/(\d{4})/);           // dd/mm/aaaa (padrão B3)
+  if (m) return `${m[3]}-${m[2]}-${m[1]}`;
+  m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);                  // aaaa-mm-dd
+  if (m) return `${m[1]}-${m[2]}-${m[3]}`;
+  const serial = Number(s);                                 // número de série do Excel
+  if (!isNaN(serial) && serial > 20000 && serial < 80000) {
+    const d = new Date(Date.UTC(1899, 11, 30) + serial * 86400000);
+    if (!isNaN(d.getTime())) return d.toISOString().slice(0, 10);
+  }
+  return null;
+}
+
+function parseValorFlexivel(v) {
+  if (v == null || v === '') return null;
+  if (typeof v === 'number') return isNaN(v) ? null : v;
+  let s = String(v).replace(/R\$/gi, '').replace(/\s/g, '').trim();
+  if (!s) return null;
+  // "1.234,56" (pt-BR) vs "1234.56" — se tem vírgula, ela é o separador decimal
+  if (s.includes(',')) s = s.replace(/\./g, '').replace(',', '.');
+  const n = parseFloat(s);
+  return isNaN(n) ? null : n;
+}
+
+// "KNRI11 - KINEA RENDA IMOBILIARIA" -> "KNRI11"
+function extrairTicker(produto) {
+  const s = String(produto == null ? '' : produto).trim().toUpperCase();
+  const m = s.match(/\b([A-Z]{4}\d{1,2})\b/);
+  return m ? m[1] : null;
+}
+
+let b3Importacao = null; // guarda o resultado do parse até o usuário confirmar
+
+async function lerExtratoB3(event) {
+  const arquivo = event.target.files && event.target.files[0];
+  const statusEl = document.getElementById('b3Status');
+  const previewEl = document.getElementById('b3Preview');
+  if (!arquivo) return;
+  statusEl.style.color = 'var(--text-muted)';
+  statusEl.textContent = 'Lendo arquivo…';
+  previewEl.innerHTML = '';
+  b3Importacao = null;
+
+  try {
+    const buffer = await arquivo.arrayBuffer();
+    const wb = XLSX.read(buffer, { type: 'array', cellDates: true });
+    const sheet = wb.Sheets[wb.SheetNames[0]];
+    const linhas = XLSX.utils.sheet_to_json(sheet, { header: 1, raw: false, defval: '' });
+    if (!linhas.length) throw new Error('Arquivo vazio.');
+
+    const idxCabecalho = acharLinhaCabecalho(linhas);
+    if (idxCabecalho < 0) throw new Error('Não achei as colunas de produto/data — confira se é o extrato de proventos da B3.');
+    const cabecalhos = linhas[idxCabecalho];
+    const cProduto = acharColuna(cabecalhos, B3_COLUNAS.produto);
+    const cData = acharColuna(cabecalhos, B3_COLUNAS.data);
+    const cValor = acharColuna(cabecalhos, B3_COLUNAS.valor);
+    const cTipo = acharColuna(cabecalhos, B3_COLUNAS.tipo);
+    if (cProduto < 0 || cData < 0 || cValor < 0) throw new Error('Faltou alguma coluna essencial (produto, data ou valor).');
+
+    const ativosPorTicker = {};
+    [...(DATA.FII || []), ...(DATA.BR || []), ...(DATA.INTL || [])].forEach(a => { ativosPorTicker[a.ticker] = a; });
+
+    const reconhecidas = [];
+    const naoReconhecidas = [];
+    for (let i = idxCabecalho + 1; i < linhas.length; i++) {
+      const linha = linhas[i];
+      if (!linha || !linha.length) continue;
+      const produto = linha[cProduto];
+      const dataIso = parseDataFlexivel(linha[cData]);
+      const valor = parseValorFlexivel(linha[cValor]);
+      if (!produto || dataIso == null || valor == null || valor <= 0) continue;
+      const ticker = extrairTicker(produto);
+      const ativo = ticker ? ativosPorTicker[ticker] : null;
+      const registro = { produto: String(produto).trim(), ticker, dataIso, valor, tipo: cTipo >= 0 ? String(linha[cTipo] || '').trim() : '' };
+      if (ativo) reconhecidas.push({ ...registro, ativoId: ativo.id });
+      else naoReconhecidas.push(registro);
+    }
+
+    if (!reconhecidas.length) {
+      throw new Error(`Nenhuma linha casou com um ativo da sua carteira (${naoReconhecidas.length} linha(s) lida(s), mas sem ticker correspondente).`);
+    }
+
+    // agrupa por ativo+mês, porque a tabela guarda um valor por mês
+    const porChave = {};
+    reconhecidas.forEach(r => {
+      const mes = r.dataIso.slice(0, 7);
+      const chave = `${r.ativoId}|${mes}`;
+      if (!porChave[chave]) porChave[chave] = { ativoId: r.ativoId, ticker: r.ticker, mes, valor: 0, eventos: 0 };
+      porChave[chave].valor += r.valor;
+      porChave[chave].eventos++;
+    });
+    const agrupadas = Object.values(porChave).sort((a, b) => b.mes.localeCompare(a.mes) || a.ticker.localeCompare(b.ticker));
+
+    b3Importacao = { agrupadas, naoReconhecidas, colunaValor: cabecalhos[cValor] };
+    statusEl.textContent = `${arquivo.name} lido.`;
+    renderPreviewB3();
+  } catch (err) {
+    console.error(err);
+    statusEl.style.color = 'var(--status-critical)';
+    statusEl.textContent = 'Erro: ' + err.message;
+  }
+}
+
+function renderPreviewB3() {
+  const el = document.getElementById('b3Preview');
+  if (!b3Importacao) { el.innerHTML = ''; return; }
+  const { agrupadas, naoReconhecidas, colunaValor } = b3Importacao;
+  const total = agrupadas.reduce((s, l) => s + l.valor, 0);
+
+  el.innerHTML = `
+    <div class="ta-grid" style="margin-bottom:12px">
+      <div class="ta-stat"><div class="ta-label">Meses a importar</div><div class="ta-value">${agrupadas.length}</div></div>
+      <div class="ta-stat"><div class="ta-label">Total</div><div class="ta-value">${brl(total)}</div></div>
+      <div class="ta-stat"><div class="ta-label">Linhas sem ativo na carteira</div><div class="ta-value" style="color:${naoReconhecidas.length ? 'var(--status-warning)' : 'var(--text-primary)'}">${naoReconhecidas.length}</div></div>
+    </div>
+    <div style="font-size:11.5px;color:var(--text-muted);margin-bottom:10px">
+      Coluna de valor usada: <strong>${escapeHtml(colunaValor || '—')}</strong>.
+      ${naoReconhecidas.length ? `Ignoradas: ${escapeHtml([...new Set(naoReconhecidas.map(r => r.produto))].slice(0, 6).join(', '))}${naoReconhecidas.length > 6 ? '…' : ''}` : ''}
+    </div>
+    <div class="table-wrap" style="max-height:260px;overflow-y:auto">
+      <table>
+        <thead><tr><th>Ativo</th><th>Mês</th><th>Pagamentos</th><th>Valor</th></tr></thead>
+        <tbody>
+          ${agrupadas.map(l => `
+            <tr>
+              <td>${escapeHtml(l.ticker)}</td>
+              <td>${mesLabel(l.mes + '-01')}</td>
+              <td class="tabular">${l.eventos}</td>
+              <td class="tabular">${brl(l.valor)}</td>
+            </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>
+    <label style="display:flex;align-items:center;gap:7px;font-size:12.5px;color:var(--text-secondary);margin-top:12px;cursor:pointer">
+      <input type="checkbox" id="b3Sobrescrever">
+      Sobrescrever meses que já têm provento registrado (marque se quiser trocar as estimativas pelos valores oficiais)
+    </label>
+    <button class="btn-primary" id="btnB3Confirmar" onclick="confirmarImportacaoB3()" style="margin-top:12px">
+      Importar ${agrupadas.length} ${agrupadas.length === 1 ? 'mês' : 'meses'}
+    </button>
+    <span id="b3ConfirmStatus" style="font-size:12px;color:var(--text-muted);margin-left:8px"></span>`;
+}
+
+async function confirmarImportacaoB3() {
+  if (!b3Importacao) return;
+  const btn = document.getElementById('btnB3Confirmar');
+  const statusEl = document.getElementById('b3ConfirmStatus');
+  const sobrescrever = document.getElementById('b3Sobrescrever').checked;
+  btn.disabled = true; btn.textContent = 'Importando…';
+  statusEl.style.color = 'var(--text-muted)';
+  statusEl.textContent = '';
+  try {
+    const linhas = b3Importacao.agrupadas.map(l => ({
+      ativo_id: l.ativoId, mes_referencia: l.mes + '-01', valor: l.valor,
+    }));
+    // proventos não tem user_id — RLS é via join com ativos
+    const { error } = await sb.from('proventos')
+      .upsert(linhas, { onConflict: 'ativo_id,mes_referencia', ignoreDuplicates: !sobrescrever });
+    if (error) throw error;
+    statusEl.textContent = 'Importado — recarregando…';
+    document.getElementById('b3File').value = '';
+    b3Importacao = null;
+    await loadAllData();
+  } catch (err) {
+    console.error(err);
+    statusEl.style.color = 'var(--status-critical)';
+    statusEl.textContent = 'Erro: ' + err.message;
+    btn.disabled = false; btn.textContent = 'Tentar de novo';
+  }
 }
 
 /* ---------------- Proventos de FII automatizados (Edge Function 'proventos-fii' -> CVM) ---------------- */
