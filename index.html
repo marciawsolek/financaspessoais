@@ -457,6 +457,13 @@
   .orc-share-toggle { display:flex; align-items:center; gap:8px; font-size:13px; color:var(--text-secondary); margin-top:4px; }
   /* barra fina dentro da tabela de categorias — contexto de magnitude sem virar outro gráfico */
   .orc-cell-bar { display:inline-block; height:4px; border-radius:2px; background:var(--series-1); vertical-align:middle; margin-right:8px; }
+  /* separa entradas de saídas na tabela — sem isso as duas se misturavam numa lista só */
+  tbody tr.orc-grupo-head td {
+    background: color-mix(in srgb, var(--text-primary) 4%, transparent);
+    font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.04em;
+    color: var(--text-secondary); font-weight: 600; padding-top: 10px; padding-bottom: 10px;
+  }
+  tbody tr.orc-grupo-total td { font-weight: 600; border-bottom: 1px solid var(--baseline); }
 
   /* ---------- Ajustes para celular ---------- */
   @media (max-width: 640px) {
@@ -902,14 +909,14 @@
 
       <!-- Tabela categoria x mês -->
       <section>
-        <div class="section-head"><h2>Categorias do mês</h2></div>
+        <div class="section-head"><h2>Entradas e saídas do mês, por categoria</h2></div>
         <div class="table-wrap">
           <table>
-            <thead><tr><th>Categoria</th><th>Grupo</th><th>% do tipo</th><th>Total</th></tr></thead>
+            <thead><tr><th>Categoria</th><th>Grupo</th><th>% do bloco</th><th>Total</th></tr></thead>
             <tbody id="orcCategoriaTableBody"></tbody>
           </table>
         </div>
-        <div style="font-size:11.5px;color:var(--text-muted);margin-top:8px;">Clique numa linha para ver os lançamentos que compõem o total.</div>
+        <div style="font-size:11.5px;color:var(--text-muted);margin-top:8px;">Entradas e saídas ficam em blocos separados, cada um somando 100% dele mesmo. Clique numa linha para ver os lançamentos que compõem o total.</div>
       </section>
 
       <!-- Painel divisão com Luciano -->
@@ -4007,28 +4014,48 @@ function renderOrcRanking(despesas) {
   wrap.innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${descricao}"><title>${descricao}</title>${linhas}</svg>`;
 }
 
+// Entradas e saídas ficam em blocos separados, cada um com seu subtotal — numa
+// lista só elas se misturavam e o "% do tipo" não dizia de que tipo era.
 function renderOrcCategoriaTable(cats) {
-  orcCatsAtuais = cats;
   const tbody = document.getElementById('orcCategoriaTableBody');
-  if (!cats.length) { tbody.innerHTML = '<tr><td colspan="4" class="orc-empty">Nenhum lançamento neste mês.</td></tr>'; return; }
-  const totalPorTipo = {};
-  cats.forEach(c => { const t = c.itens[0].tipo; totalPorTipo[t] = (totalPorTipo[t] || 0) + c.total; });
-  const maxPorTipo = {};
-  cats.forEach(c => { const t = c.itens[0].tipo; maxPorTipo[t] = Math.max(maxPorTipo[t] || 0, c.total); });
+  if (!cats.length) {
+    orcCatsAtuais = [];
+    tbody.innerHTML = '<tr><td colspan="4" class="orc-empty">Nenhum lançamento neste mês.</td></tr>';
+    return;
+  }
+  const porTipo = tipo => cats.filter(c => c.itens[0].tipo === tipo).sort((a, b) => b.total - a.total);
+  const blocos = [
+    { tipo: 'receita', titulo: 'Entradas', cor: 'var(--series-1)', itens: porTipo('receita') },
+    { tipo: 'despesa', titulo: 'Saídas', cor: 'var(--series-6)', itens: porTipo('despesa') },
+  ].filter(b => b.itens.length);
 
-  tbody.innerHTML = cats.map((c, i) => {
-    const tipo = c.itens[0].tipo;
-    const share = totalPorTipo[tipo] ? c.total / totalPorTipo[tipo] : 0;
-    const larguraBarra = maxPorTipo[tipo] ? Math.max(2, (c.total / maxPorTipo[tipo]) * 54) : 2;
-    const compartilhado = c.itens.some(it => it.compartilhado_com_luciano);
-    const cor = tipo === 'receita' ? 'var(--series-1)' : 'var(--series-6)';
+  // orcCatsAtuais precisa seguir a ordem exibida — é por índice que o drill-down acha a categoria.
+  orcCatsAtuais = blocos.flatMap(b => b.itens);
+
+  let i = 0;
+  tbody.innerHTML = blocos.map(bloco => {
+    const total = bloco.itens.reduce((s, c) => s + c.total, 0);
+    const max = Math.max(...bloco.itens.map(c => c.total));
+    const linhas = bloco.itens.map(c => {
+      const idx = i++;
+      const share = total ? c.total / total : 0;
+      const larg = max ? Math.max(2, (c.total / max) * 54) : 2;
+      const compartilhado = c.itens.some(it => it.compartilhado_com_luciano);
+      return `
+      <tr class="orc-row-click" onclick="abrirLancamentosIdx(${idx})">
+        <td class="ticker-name">${escapeHtml(c.categoria)}${compartilhado ? '<span class="orc-chip">com Luciano</span>' : ''}</td>
+        <td>${escapeHtml(c.grupo || '—')}</td>
+        <td class="tabular"><span class="orc-cell-bar" style="width:${larg.toFixed(0)}px;background:${bloco.cor}"></span>${(share * 100).toFixed(1)}%</td>
+        <td class="tabular" style="${bloco.tipo === 'receita' ? 'color:var(--good)' : ''}">${brl(c.total)}</td>
+      </tr>`;
+    }).join('');
     return `
-    <tr class="orc-row-click" onclick="abrirLancamentosIdx(${i})">
-      <td class="ticker-name">${escapeHtml(c.categoria)}${compartilhado ? '<span class="orc-chip">com Luciano</span>' : ''}</td>
-      <td>${escapeHtml(c.grupo || '—')}</td>
-      <td class="tabular"><span class="orc-cell-bar" style="width:${larguraBarra.toFixed(0)}px;background:${cor}"></span>${(share * 100).toFixed(1)}%</td>
-      <td class="tabular" style="${tipo === 'receita' ? 'color:var(--good)' : ''}">${brl(c.total)}</td>
-    </tr>`;
+      <tr class="orc-grupo-head"><td colspan="4">${bloco.titulo}</td></tr>
+      ${linhas}
+      <tr class="orc-grupo-total">
+        <td>Total de ${bloco.titulo.toLowerCase()}</td><td></td><td class="tabular">100%</td>
+        <td class="tabular" style="${bloco.tipo === 'receita' ? 'color:var(--good)' : ''}">${brl(total)}</td>
+      </tr>`;
   }).join('');
 }
 
