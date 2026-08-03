@@ -3715,6 +3715,22 @@ function orcEscalaLimpa(max, alvoTicks) {
   return { max: Math.ceil(max / passo) * passo, passo };
 }
 
+// Mede o texto de verdade (canvas) em vez de estimar largura por caractere —
+// estimativa errava e deixava nome vazar da área e valor colidir com o %.
+let _orcCtxMedida = null;
+function orcMedirTexto(txt, px, peso) {
+  if (!_orcCtxMedida) _orcCtxMedida = document.createElement('canvas').getContext('2d');
+  _orcCtxMedida.font = `${peso || 400} ${px}px system-ui, -apple-system, "Segoe UI", sans-serif`;
+  return _orcCtxMedida.measureText(String(txt)).width;
+}
+
+function orcTruncarPara(txt, larguraMax, px) {
+  if (orcMedirTexto(txt, px) <= larguraMax) return txt;
+  let s = String(txt);
+  while (s.length > 1 && orcMedirTexto(s + '…', px) > larguraMax) s = s.slice(0, -1);
+  return s + '…';
+}
+
 function orcFmtCompacto(v) {
   const a = Math.abs(v);
   if (a >= 1e6) return (v / 1e6).toLocaleString('pt-BR', { maximumFractionDigits: 1 }) + ' mi';
@@ -3943,15 +3959,22 @@ function renderOrcRanking(despesas) {
   const estreito = W < 460;
   // Em tela estreita o rótulo vai ACIMA da barra (não cabe uma coluna de nomes ao lado).
   const padL = estreito ? 0 : Math.min(180, Math.round(W * 0.26));
-  // Em tela estreita o valor sobe pra linha do nome, então a barra usa a largura
-  // toda e nenhum rótulo fica pendurado fora da área.
-  const padR = estreito ? 0 : 92, padT = 6;
+  // Espaço à direita medido a partir dos rótulos reais (maior valor + maior %),
+  // pra o número nunca encostar na porcentagem nem sair da área.
+  const larguraValores = Math.max(...itens.map(i => orcMedirTexto(brl(i.total), 11.5, 500)));
+  const larguraPcts = Math.max(...itens.map(i => orcMedirTexto((i.total / totalGeral * 100).toFixed(0) + '%', 10.5)));
+  // Em tela estreita o valor sobe pra linha do nome, então a barra usa a largura toda.
+  const padR = estreito ? 0 : Math.ceil(larguraValores + larguraPcts + 26);
+  const padT = 6;
   const alturaLinha = estreito ? 42 : 30, alturaBarra = estreito ? 12 : 14;
   const H = padT + itens.length * alturaLinha + 6;
-  const plotW = W - padL - padR;
+  const plotW = Math.max(20, W - padL - padR);
   const max = itens[0].total || 1;
-  // Em tela estreita o nome divide a linha com o valor, então sobra menos espaço.
-  const maxChars = estreito ? Math.max(8, Math.floor((W - 150) / 6.4)) : Math.max(10, Math.floor(padL / 6.6));
+  // Largura livre pro nome: coluna própria no layout largo; o que sobrar depois do
+  // valor no layout estreito (lá os dois dividem a mesma linha).
+  const espacoNome = estreito
+    ? W - Math.max(...itens.map(i => orcMedirTexto(`${brl(i.total)} · ${(i.total / totalGeral * 100).toFixed(0)}%`, 11.5, 500))) - 14
+    : padL - 14;
 
   const linhas = itens.map((it, i) => {
     const topo = padT + i * alturaLinha;
@@ -3966,7 +3989,7 @@ function renderOrcRanking(despesas) {
                L${padL + larg},${yBarra + alturaBarra - r}
                Q${padL + larg},${yBarra + alturaBarra} ${padL + larg - r},${yBarra + alturaBarra}
                L${padL},${yBarra + alturaBarra} Z`;
-    const nomeCurto = it.nome.length > maxChars ? it.nome.slice(0, maxChars - 1) + '…' : it.nome;
+    const nomeCurto = orcTruncarPara(it.nome, espacoNome, 11.5);
     const pctTxt = (it.total / totalGeral * 100).toFixed(0) + '%';
     const rotulos = estreito
       ? `<text x="0" y="${topo + 15}" font-size="11.5" fill="var(--text-secondary)">${escapeHtml(nomeCurto)}</text>
