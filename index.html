@@ -3943,12 +3943,15 @@ function renderOrcRanking(despesas) {
   const estreito = W < 460;
   // Em tela estreita o rótulo vai ACIMA da barra (não cabe uma coluna de nomes ao lado).
   const padL = estreito ? 0 : Math.min(180, Math.round(W * 0.26));
-  const padR = estreito ? 58 : 92, padT = 6;
+  // Em tela estreita o valor sobe pra linha do nome, então a barra usa a largura
+  // toda e nenhum rótulo fica pendurado fora da área.
+  const padR = estreito ? 0 : 92, padT = 6;
   const alturaLinha = estreito ? 42 : 30, alturaBarra = estreito ? 12 : 14;
   const H = padT + itens.length * alturaLinha + 6;
   const plotW = W - padL - padR;
   const max = itens[0].total || 1;
-  const maxChars = estreito ? 30 : Math.max(10, Math.floor(padL / 6.6));
+  // Em tela estreita o nome divide a linha com o valor, então sobra menos espaço.
+  const maxChars = estreito ? Math.max(8, Math.floor((W - 150) / 6.4)) : Math.max(10, Math.floor(padL / 6.6));
 
   const linhas = itens.map((it, i) => {
     const topo = padT + i * alturaLinha;
@@ -3964,14 +3967,16 @@ function renderOrcRanking(despesas) {
                Q${padL + larg},${yBarra + alturaBarra} ${padL + larg - r},${yBarra + alturaBarra}
                L${padL},${yBarra + alturaBarra} Z`;
     const nomeCurto = it.nome.length > maxChars ? it.nome.slice(0, maxChars - 1) + '…' : it.nome;
-    const rotulo = estreito
-      ? `<text x="0" y="${topo + 15}" font-size="11.5" fill="var(--text-secondary)">${escapeHtml(nomeCurto)}</text>`
-      : `<text x="${padL - 10}" y="${yTextoBarra}" text-anchor="end" font-size="11.5" fill="var(--text-secondary)">${escapeHtml(nomeCurto)}</text>`;
+    const pctTxt = (it.total / totalGeral * 100).toFixed(0) + '%';
+    const rotulos = estreito
+      ? `<text x="0" y="${topo + 15}" font-size="11.5" fill="var(--text-secondary)">${escapeHtml(nomeCurto)}</text>
+         <text x="${W - 2}" y="${topo + 15}" text-anchor="end" font-size="11.5" fill="var(--text-primary)" font-weight="500">${brl(it.total)} · ${pctTxt}</text>`
+      : `<text x="${padL - 10}" y="${yTextoBarra}" text-anchor="end" font-size="11.5" fill="var(--text-secondary)">${escapeHtml(nomeCurto)}</text>
+         <text x="${padL + larg + 8}" y="${yTextoBarra}" font-size="11.5" fill="var(--text-primary)" font-weight="500">${brl(it.total)}</text>
+         <text x="${W - 2}" y="${yTextoBarra}" text-anchor="end" font-size="10.5" fill="var(--text-muted)">${pctTxt}</text>`;
     return `
-      ${rotulo}
+      ${rotulos}
       <path d="${d}" fill="${cor}"/>
-      <text x="${padL + larg + 8}" y="${yTextoBarra}" font-size="11.5" fill="var(--text-primary)" font-weight="500">${brl(it.total)}</text>
-      <text x="${W - 2}" y="${yTextoBarra}" text-anchor="end" font-size="10.5" fill="var(--text-muted)">${(it.total / totalGeral * 100).toFixed(0)}%</text>
       <title>${escapeHtml(it.nome)}: ${brl(it.total)} (${(it.total / totalGeral * 100).toFixed(1)}% das despesas do mês)</title>`;
   }).join('');
 
