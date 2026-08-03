@@ -411,25 +411,52 @@
   .view-tab-btn.active { background: var(--text-primary); color: var(--surface); font-weight:600; }
 
   /* ---------- Orçamento doméstico ---------- */
+  /* Cores do orçamento — Receita/Despesa são duas SÉRIES (identidade), então usam
+     o palette categórico já validado do app (azul/laranja: par CVD-seguro), não
+     verde/vermelho (que colapsa em deuteranopia). O saldo mensal é POLARIDADE
+     (acima/abaixo de zero), aí sim verde/vermelho — mas ali a posição em relação
+     à linha do zero é o encoder primário, a cor só reforça. */
+  :root { --orc-receita: var(--series-1); --orc-despesa: var(--series-6); }
+
+  .orc-filtros { display:flex; align-items:flex-end; gap:12px; flex-wrap:wrap; margin-bottom:22px; }
+  .orc-filtros label { display:flex; flex-direction:column; gap:5px; font-size:12px; color:var(--text-secondary); }
+
   .orc-tiles { display:grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
   @media (max-width: 760px) { .orc-tiles { grid-template-columns: 1fr; } }
-  .orc-chart { display:flex; align-items:flex-end; gap: 16px; height: 200px; padding-top: 8px; overflow-x:auto; }
-  .orc-chart-col { display:flex; flex-direction:column; align-items:center; height:100%; justify-content:flex-end; flex:none; min-width:50px; }
-  .orc-bar-pair { display:flex; align-items:flex-end; gap:4px; height:100%; }
-  .orc-bar { width: 16px; border-radius: 3px 3px 0 0; min-height: 2px; cursor: default; }
-  .orc-bar.receita { background: var(--status-good); }
-  .orc-bar.despesa { background: var(--status-critical); }
-  .orc-chart-label { font-size: 10.5px; color: var(--text-muted); margin-top: 8px; white-space:nowrap; }
-  .orc-rank-row { padding: 9px 0; border-bottom: 1px solid var(--gridline); }
-  .orc-rank-row:last-child { border-bottom: none; }
-  .orc-rank-top { display:flex; justify-content:space-between; font-size: 13px; margin-bottom: 5px; gap:10px; }
-  .orc-rank-top .cat { font-weight:500; }
-  .orc-rank-bar-track { height: 6px; border-radius: 999px; background: var(--gridline); overflow: hidden; }
-  .orc-rank-bar-fill { height: 100%; background: var(--series-1); border-radius: 999px; }
+  /* valor grande usa figuras proporcionais (tabular-nums só em colunas alinhadas) */
+  .orc-tile-valor { font-size: 26px; font-weight: 600; letter-spacing: -0.015em; }
+  .orc-tile-delta { font-size: 12px; margin-top: 6px; color: var(--text-muted); }
+  .orc-tile-hero { border-color: color-mix(in srgb, var(--text-primary) 18%, var(--border)); }
+
+  .orc-chart-svg-wrap { position: relative; }
+  .orc-chart-svg-wrap svg { width: 100%; height: auto; display: block; }
+  .orc-bar-mark { transition: opacity 0.12s ease; }
+  .orc-bar-mark:hover { opacity: 0.78; }
+  .orc-chart-tooltip {
+    position:absolute; background:var(--surface); border:1px solid var(--border); border-radius:8px;
+    padding:8px 10px; font-size:11.5px; line-height:1.6; pointer-events:none;
+    box-shadow:0 4px 14px rgba(0,0,0,0.12); white-space:nowrap; z-index:5;
+  }
+  .orc-tt-titulo { font-weight:600; margin-bottom:4px; color:var(--text-primary); }
+  .orc-tt-row { display:flex; align-items:center; gap:6px; color:var(--text-secondary); }
+  .orc-tt-key { width:10px; height:2.5px; border-radius:2px; flex:none; }
+  .orc-tt-row strong { color:var(--text-primary); font-variant-numeric: tabular-nums; }
+
+  .orc-legend { display:flex; gap:16px; flex-wrap:wrap; font-size:12px; color:var(--text-secondary); margin-bottom:12px; }
+  .orc-legend-item { display:flex; align-items:center; gap:6px; }
+  .orc-legend-key { width:11px; height:11px; border-radius:3px; flex:none; }
+
+  .orc-toggle-row { display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; margin-bottom:12px; }
+  .orc-seg { display:flex; gap:4px; background:var(--page); border:1px solid var(--border); border-radius:9px; padding:3px; }
+  .orc-seg button { font-size:12px; padding:5px 12px; border-radius:7px; border:none; background:transparent; color:var(--text-secondary); cursor:pointer; }
+  .orc-seg button.active { background:var(--text-primary); color:var(--surface); font-weight:600; }
+
   .orc-chip { font-size: 10px; padding: 2px 7px; border-radius: 999px; background: color-mix(in srgb, var(--series-1) 14%, transparent); color: var(--series-1); margin-left: 6px; white-space:nowrap; }
   tbody tr.orc-row-click { cursor: pointer; }
   .orc-empty { font-size: 13px; color: var(--text-muted); padding: 20px 4px; text-align:center; }
   .orc-share-toggle { display:flex; align-items:center; gap:8px; font-size:13px; color:var(--text-secondary); margin-top:4px; }
+  /* barra fina dentro da tabela de categorias — contexto de magnitude sem virar outro gráfico */
+  .orc-cell-bar { display:inline-block; height:4px; border-radius:2px; background:var(--series-1); vertical-align:middle; margin-right:8px; }
 
   /* ---------- Ajustes para celular ---------- */
   @media (max-width: 640px) {
@@ -454,6 +481,10 @@
     footer { font-size: 11px; }
     /* dica visual de que a tabela rola pro lado */
     .table-wrap { position: relative; }
+    .orc-tile-valor { font-size: 21px; }
+    .orc-legend { gap: 10px; font-size: 11px; }
+    .view-tabs { width: 100%; }
+    .view-tab-btn { flex: 1; }
   }
   @media (max-width: 380px) {
     .tiles { grid-template-columns: 1fr; }
@@ -813,10 +844,9 @@
     </div>
 
     <div id="orcConteudo" style="display:none">
-      <!-- Seletor de mês -->
-      <section style="margin-bottom:20px;">
-        <label style="font-size:12.5px;color:var(--text-secondary);display:flex;flex-direction:column;gap:5px;max-width:220px;">
-          Mês
+      <!-- Filtro: uma linha só, acima de tudo que ele afeta -->
+      <section class="orc-filtros">
+        <label>Mês
           <select id="orcMesSelect" onchange="renderOrcamento()"></select>
         </label>
       </section>
@@ -824,37 +854,50 @@
       <!-- Tiles do mês -->
       <section>
         <div class="orc-tiles">
+          <div class="tile orc-tile-hero">
+            <div class="label">Saldo do mês</div>
+            <div id="orcSaldoValue" class="orc-tile-valor">—</div>
+            <div id="orcSaldoDelta" class="orc-tile-delta"></div>
+          </div>
           <div class="tile">
             <div class="label">Receita do mês</div>
-            <div id="orcReceitaValue" class="value tabular">—</div>
+            <div id="orcReceitaValue" class="orc-tile-valor">—</div>
+            <div id="orcReceitaDelta" class="orc-tile-delta"></div>
           </div>
           <div class="tile">
             <div class="label">Despesa do mês</div>
-            <div id="orcDespesaValue" class="value tabular">—</div>
-          </div>
-          <div class="tile">
-            <div class="label">Saldo do mês</div>
-            <div id="orcSaldoValue" class="value tabular">—</div>
+            <div id="orcDespesaValue" class="orc-tile-valor">—</div>
+            <div id="orcDespesaDelta" class="orc-tile-delta"></div>
           </div>
         </div>
       </section>
 
-      <!-- Gráfico receita x despesa no ano -->
+      <!-- Receita x despesa mês a mês + saldo -->
       <section>
-        <div class="section-head"><h2>Receita x despesa no período</h2></div>
+        <div class="section-head">
+          <h2>Receita x despesa mês a mês</h2>
+          <button class="link-btn" id="orcChartTabelaBtn" onclick="toggleOrcChartTabela()">Ver como tabela</button>
+        </div>
         <div class="card">
-          <div class="orc-chart" id="orcChart"></div>
-          <div class="legend">
-            <div class="legend-item"><span class="legend-dot" style="background:var(--status-good)"></span>Receita</div>
-            <div class="legend-item"><span class="legend-dot" style="background:var(--status-critical)"></span>Despesa</div>
-          </div>
+          <div class="orc-legend" id="orcChartLegenda"></div>
+          <div class="orc-chart-svg-wrap" id="orcChartWrap"></div>
+          <div id="orcChartTabela" class="table-wrap" style="display:none;margin-top:14px;"></div>
         </div>
       </section>
 
-      <!-- Ranking de categorias -->
+      <!-- Para onde foi o dinheiro -->
       <section>
-        <div class="section-head"><h2>Categorias que mais pesaram no mês</h2></div>
-        <div class="card" id="orcRankingCard"></div>
+        <div class="section-head"><h2>Para onde foi o dinheiro</h2></div>
+        <div class="card">
+          <div class="orc-toggle-row">
+            <div class="orc-seg">
+              <button id="orcRankGrupoBtn" class="active" onclick="setOrcRankModo('grupo')">Por grupo</button>
+              <button id="orcRankCatBtn" onclick="setOrcRankModo('categoria')">Por categoria</button>
+            </div>
+            <span style="font-size:11.5px;color:var(--text-muted);" id="orcRankNota"></span>
+          </div>
+          <div class="orc-chart-svg-wrap" id="orcRankWrap"></div>
+        </div>
       </section>
 
       <!-- Tabela categoria x mês -->
@@ -862,7 +905,7 @@
         <div class="section-head"><h2>Categorias do mês</h2></div>
         <div class="table-wrap">
           <table>
-            <thead><tr><th>Categoria</th><th>Grupo</th><th>Total</th></tr></thead>
+            <thead><tr><th>Categoria</th><th>Grupo</th><th>% do tipo</th><th>Total</th></tr></thead>
             <tbody id="orcCategoriaTableBody"></tbody>
           </table>
         </div>
@@ -3606,72 +3649,322 @@ function renderOrcamento() {
   if (!DATA_ORC) return;
   orcMesAtual = document.getElementById('orcMesSelect').value || orcMesAtual;
   const doMes = lancamentosDoMes(orcMesAtual);
-  const receitas = doMes.filter(l => l.tipo === 'receita');
   const despesas = doMes.filter(l => l.tipo === 'despesa');
-  const totalReceita = receitas.reduce((s, l) => s + Number(l.valor), 0);
-  const totalDespesa = despesas.reduce((s, l) => s + Number(l.valor), 0);
-  document.getElementById('orcReceitaValue').textContent = brl(totalReceita);
-  document.getElementById('orcDespesaValue').textContent = brl(totalDespesa);
-  const saldo = totalReceita - totalDespesa;
-  const saldoEl = document.getElementById('orcSaldoValue');
-  saldoEl.textContent = brl(saldo);
-  saldoEl.style.color = saldo >= 0 ? 'var(--good)' : 'var(--status-critical)';
 
-  renderOrcChart();
+  const serie = orcSerieMensal();
+  const i = serie.findIndex(s => s.mes === orcMesAtual);
+  const atual = serie[i] || { receita: 0, despesa: 0, saldo: 0 };
+  const anterior = i > 0 ? serie[i - 1] : null;
+
+  const saldoEl = document.getElementById('orcSaldoValue');
+  saldoEl.textContent = brl(atual.saldo);
+  saldoEl.style.color = atual.saldo >= 0 ? 'var(--good)' : 'var(--status-critical)';
+  document.getElementById('orcReceitaValue').textContent = brl(atual.receita);
+  document.getElementById('orcDespesaValue').textContent = brl(atual.despesa);
+
+  // Delta vs mês anterior — para despesa, gastar menos é a direção boa (invertida).
+  const delta = (campo, menorEhMelhor) => {
+    const el = document.getElementById(campo.el);
+    if (!anterior) { el.textContent = 'primeiro mês do histórico'; el.style.color = ''; return; }
+    const d = atual[campo.k] - anterior[campo.k];
+    if (Math.abs(d) < 0.01) { el.textContent = 'igual ao mês anterior'; el.style.color = ''; return; }
+    const bom = menorEhMelhor ? d < 0 : d > 0;
+    el.textContent = `${d > 0 ? '↑' : '↓'} ${brl(Math.abs(d))} vs ${mesLabel(anterior.mes + '-01')}`;
+    el.style.color = bom ? 'var(--good)' : 'var(--status-critical)';
+  };
+  delta({ el: 'orcSaldoDelta', k: 'saldo' }, false);
+  delta({ el: 'orcReceitaDelta', k: 'receita' }, false);
+  delta({ el: 'orcDespesaDelta', k: 'despesa' }, true);
+
+  renderOrcChart(serie);
   renderOrcRanking(despesas);
   renderOrcCategoriaTable(agruparPorCategoria(doMes).sort((a, b) => b.total - a.total));
   renderLucianoPanel(doMes);
   renderOrcListaMes(doMes);
 }
 
-function renderOrcChart() {
+/* ---- helpers de gráfico ---- */
+function orcSerieMensal() {
   const meses = [...new Set(DATA_ORC.lancamentos.map(l => l.data.slice(0, 7)))].sort();
-  const porMes = meses.map(m => {
+  return meses.map(m => {
     const l = lancamentosDoMes(m);
-    return {
-      mes: m,
-      receita: l.filter(x => x.tipo === 'receita').reduce((s, x) => s + Number(x.valor), 0),
-      despesa: l.filter(x => x.tipo === 'despesa').reduce((s, x) => s + Number(x.valor), 0),
-    };
+    const receita = l.filter(x => x.tipo === 'receita').reduce((s, x) => s + Number(x.valor), 0);
+    const despesa = l.filter(x => x.tipo === 'despesa').reduce((s, x) => s + Number(x.valor), 0);
+    return { mes: m, receita, despesa, saldo: receita - despesa };
   });
-  const max = Math.max(1, ...porMes.flatMap(m => [m.receita, m.despesa]));
-  const el = document.getElementById('orcChart');
-  if (!porMes.length) { el.innerHTML = '<div class="orc-empty">Sem dados ainda.</div>'; return; }
-  el.innerHTML = porMes.map(m => `
-    <div class="orc-chart-col" title="${mesLabel(m.mes + '-01')}: receita ${brl(m.receita)} · despesa ${brl(m.despesa)}">
-      <div class="orc-bar-pair">
-        <div class="orc-bar receita" style="height:${Math.max(2, m.receita / max * 160)}px"></div>
-        <div class="orc-bar despesa" style="height:${Math.max(2, m.despesa / max * 160)}px"></div>
-      </div>
-      <div class="orc-chart-label">${mesLabel(m.mes + '-01')}</div>
-    </div>
-  `).join('');
+}
+
+// Rótulos de eixo em números redondos (1 mil / 5 mil / 10 mil), nunca 13.847,29.
+function orcEscalaLimpa(max, alvoTicks) {
+  if (!(max > 0)) return { max: 1, passo: 1 };
+  const bruto = max / (alvoTicks || 4);
+  const mag = Math.pow(10, Math.floor(Math.log10(bruto)));
+  const n = bruto / mag;
+  const passo = (n <= 1 ? 1 : n <= 2 ? 2 : n <= 2.5 ? 2.5 : n <= 5 ? 5 : 10) * mag;
+  return { max: Math.ceil(max / passo) * passo, passo };
+}
+
+function orcFmtCompacto(v) {
+  const a = Math.abs(v);
+  if (a >= 1e6) return (v / 1e6).toLocaleString('pt-BR', { maximumFractionDigits: 1 }) + ' mi';
+  if (a >= 1000) return (v / 1000).toLocaleString('pt-BR', { maximumFractionDigits: 0 }) + ' mil';
+  return Math.round(v).toLocaleString('pt-BR');
+}
+
+// Barra com a ponta de dado arredondada (4px) e a base quadrada na linha de base.
+function orcBarraPath(x, y, w, h, lado) {
+  const r = Math.min(4, w / 2, Math.abs(h));
+  if (h <= 0.5) return `M${x},${y} h${w} v0.5 h${-w} Z`;
+  if (lado === 'baixo') { // cresce pra baixo: ponta arredondada embaixo
+    return `M${x},${y} L${x + w},${y} L${x + w},${y + h - r} Q${x + w},${y + h} ${x + w - r},${y + h} L${x + r},${y + h} Q${x},${y + h} ${x},${y + h - r} Z`;
+  }
+  return `M${x},${y + h} L${x},${y + r} Q${x},${y} ${x + r},${y} L${x + w - r},${y} Q${x + w},${y} ${x + w},${y + r} L${x + w},${y + h} Z`;
+}
+
+const ORC_COR_RECEITA = 'var(--series-1)';
+const ORC_COR_DESPESA = 'var(--series-6)';
+
+/* Colunas agrupadas receita x despesa + faixa de saldo (mesma unidade R$, um eixo
+   por painel — nunca dois eixos y no mesmo plot). */
+function renderOrcChart(serie) {
+  const wrap = document.getElementById('orcChartWrap');
+  const legenda = document.getElementById('orcChartLegenda');
+  if (!wrap) return;
+  if (!serie.length) {
+    wrap.innerHTML = '<div class="orc-empty">Sem dados ainda.</div>';
+    legenda.innerHTML = '';
+    document.getElementById('orcChartTabela').innerHTML = '';
+    return;
+  }
+
+  legenda.innerHTML = `
+    <span class="orc-legend-item"><span class="orc-legend-key" style="background:${ORC_COR_RECEITA}"></span>Receita</span>
+    <span class="orc-legend-item"><span class="orc-legend-key" style="background:${ORC_COR_DESPESA}"></span>Despesa</span>
+    <span class="orc-legend-item"><span class="orc-legend-key" style="background:var(--good)"></span>Saldo positivo</span>
+    <span class="orc-legend-item"><span class="orc-legend-key" style="background:var(--status-critical)"></span>Saldo negativo</span>`;
+
+  const n = serie.length;
+  const W = 760, padL = 54, padR = 14, padT = 14;
+  const hTopo = 200, gapPaineis = 34, hSaldo = 86, hEixo = 22;
+  const H = padT + hTopo + gapPaineis + hSaldo + hEixo;
+  const plotW = W - padL - padR;
+  const banda = plotW / n;
+
+  const escala = orcEscalaLimpa(Math.max(...serie.flatMap(s => [s.receita, s.despesa])), 4);
+  const y = v => padT + hTopo - (v / escala.max) * hTopo;
+
+  const ticks = [];
+  for (let v = 0; v <= escala.max + 1e-6; v += escala.passo) ticks.push(v);
+  const grid = ticks.map(v => `
+    <line x1="${padL}" x2="${W - padR}" y1="${y(v).toFixed(1)}" y2="${y(v).toFixed(1)}" stroke="var(--gridline)" stroke-width="1"/>
+    <text x="${padL - 8}" y="${(y(v) + 3.5).toFixed(1)}" text-anchor="end" font-size="9.5" fill="var(--text-muted)">${orcFmtCompacto(v)}</text>`).join('');
+
+  // 2px de respiro entre as barras vizinhas; largura da barra limitada a 24px.
+  const larguraBarra = Math.min(24, Math.max(6, (banda - 14) / 2));
+  const gapPar = 2;
+
+  const colunas = serie.map((s, i) => {
+    const centro = padL + banda * i + banda / 2;
+    const xR = centro - larguraBarra - gapPar / 2;
+    const xD = centro + gapPar / 2;
+    const hR = padT + hTopo - y(s.receita), hD = padT + hTopo - y(s.despesa);
+    return `
+      <path class="orc-bar-mark" data-i="${i}" d="${orcBarraPath(xR, y(s.receita), larguraBarra, hR)}" fill="${ORC_COR_RECEITA}"/>
+      <path class="orc-bar-mark" data-i="${i}" d="${orcBarraPath(xD, y(s.despesa), larguraBarra, hD)}" fill="${ORC_COR_DESPESA}"/>`;
+  }).join('');
+
+  // Painel do saldo: polaridade em torno do zero — a posição é o encoder, a cor reforça.
+  const yZero = padT + hTopo + gapPaineis + hSaldo / 2;
+  const maxSaldo = Math.max(1, ...serie.map(s => Math.abs(s.saldo)));
+  const hSaldoBarra = v => (Math.abs(v) / maxSaldo) * (hSaldo / 2 - 10);
+  const larguraSaldo = Math.min(24, Math.max(6, banda - 16));
+  const barrasSaldo = serie.map((s, i) => {
+    const centro = padL + banda * i + banda / 2;
+    const h = hSaldoBarra(s.saldo);
+    const pos = s.saldo >= 0;
+    const cor = pos ? 'var(--good)' : 'var(--status-critical)';
+    const d = pos
+      ? orcBarraPath(centro - larguraSaldo / 2, yZero - h, larguraSaldo, h)
+      : orcBarraPath(centro - larguraSaldo / 2, yZero, larguraSaldo, h, 'baixo');
+    return `<path class="orc-bar-mark" data-i="${i}" d="${d}" fill="${cor}"/>`;
+  }).join('');
+
+  const rotulos = serie.map((s, i) => `
+    <text x="${(padL + banda * i + banda / 2).toFixed(1)}" y="${H - 6}" text-anchor="middle" font-size="9.5"
+          fill="${s.mes === orcMesAtual ? 'var(--text-primary)' : 'var(--text-muted)'}"
+          font-weight="${s.mes === orcMesAtual ? '600' : '400'}">${mesLabel(s.mes + '-01')}</text>`).join('');
+
+  // Alvos de clique/hover por mês — bem maiores que as barras.
+  const hits = serie.map((s, i) => `
+    <rect class="orc-hit" data-i="${i}" x="${(padL + banda * i).toFixed(1)}" y="${padT}"
+          width="${banda.toFixed(1)}" height="${hTopo + gapPaineis + hSaldo}" fill="transparent"/>`).join('');
+
+  const descricao = `Receita e despesa de ${mesLabel(serie[0].mes + '-01')} a ${mesLabel(serie[n - 1].mes + '-01')}, com o saldo de cada mês abaixo.`;
+
+  wrap.innerHTML = `
+    <svg viewBox="0 0 ${W} ${H}" id="orcSvg" role="img" aria-label="${descricao}">
+      <title>${descricao}</title>
+      ${grid}
+      ${colunas}
+      <text x="${padL}" y="${padT + hTopo + gapPaineis - 12}" font-size="10" fill="var(--text-muted)">Saldo do mês</text>
+      <line x1="${padL}" x2="${W - padR}" y1="${yZero}" y2="${yZero}" stroke="var(--baseline)" stroke-width="1"/>
+      ${barrasSaldo}
+      ${rotulos}
+      ${hits}
+    </svg>
+    <div id="orcChartTooltip" class="orc-chart-tooltip" style="display:none"></div>`;
+
+  attachOrcChartHover(serie);
+  renderOrcChartTabela(serie);
+}
+
+function attachOrcChartHover(serie) {
+  const svg = document.getElementById('orcSvg');
+  const tooltip = document.getElementById('orcChartTooltip');
+  if (!svg || !tooltip) return;
+  const wrap = svg.parentElement;
+
+  const mostrar = (i, clientX, clientY) => {
+    const s = serie[i];
+    if (!s) return;
+    const linha = (cor, rotulo, valor) =>
+      `<div class="orc-tt-row"><span class="orc-tt-key" style="background:${cor}"></span>${rotulo}: <strong>${brl(valor)}</strong></div>`;
+    tooltip.innerHTML =
+      `<div class="orc-tt-titulo">${mesLabel(s.mes + '-01')}</div>` +
+      linha(ORC_COR_RECEITA, 'Receita', s.receita) +
+      linha(ORC_COR_DESPESA, 'Despesa', s.despesa) +
+      linha(s.saldo >= 0 ? 'var(--good)' : 'var(--status-critical)', 'Saldo', s.saldo);
+    tooltip.style.display = 'block';
+    const r = wrap.getBoundingClientRect();
+    let left = clientX - r.left + 14;
+    if (left + tooltip.offsetWidth > r.width) left = clientX - r.left - tooltip.offsetWidth - 14;
+    tooltip.style.left = Math.max(0, left) + 'px';
+    tooltip.style.top = Math.max(0, clientY - r.top - tooltip.offsetHeight - 10) + 'px';
+  };
+
+  svg.querySelectorAll('.orc-hit').forEach(hit => {
+    const i = Number(hit.dataset.i);
+    const mover = e => { const c = e.touches ? e.touches[0] : e; mostrar(i, c.clientX, c.clientY); };
+    hit.addEventListener('mousemove', mover);
+    hit.addEventListener('touchstart', mover, { passive: true });
+    hit.addEventListener('touchmove', mover, { passive: true });
+  });
+  svg.addEventListener('mouseleave', () => { tooltip.style.display = 'none'; });
+  svg.addEventListener('touchend', () => { tooltip.style.display = 'none'; });
+}
+
+// Gêmea em tabela do gráfico — todo valor continua legível sem depender de hover.
+function renderOrcChartTabela(serie) {
+  const el = document.getElementById('orcChartTabela');
+  if (!el) return;
+  el.innerHTML = `
+    <table>
+      <thead><tr><th>Mês</th><th>Receita</th><th>Despesa</th><th>Saldo</th></tr></thead>
+      <tbody>${serie.map(s => `
+        <tr>
+          <td>${mesLabel(s.mes + '-01')}</td>
+          <td class="tabular">${brl(s.receita)}</td>
+          <td class="tabular">${brl(s.despesa)}</td>
+          <td class="tabular" style="color:${s.saldo >= 0 ? 'var(--good)' : 'var(--status-critical)'}">${brl(s.saldo)}</td>
+        </tr>`).join('')}</tbody>
+    </table>`;
+}
+
+function toggleOrcChartTabela() {
+  const el = document.getElementById('orcChartTabela');
+  const btn = document.getElementById('orcChartTabelaBtn');
+  const abrir = el.style.display === 'none';
+  el.style.display = abrir ? '' : 'none';
+  btn.textContent = abrir ? 'Ocultar tabela' : 'Ver como tabela';
+}
+
+/* Barras horizontais ordenadas — categorias nominais, então uma cor só
+   (o comprimento já codifica magnitude; colorir por valor gastaria o canal à toa). */
+let orcRankModo = 'grupo';
+function setOrcRankModo(modo) {
+  orcRankModo = modo;
+  document.getElementById('orcRankGrupoBtn').classList.toggle('active', modo === 'grupo');
+  document.getElementById('orcRankCatBtn').classList.toggle('active', modo === 'categoria');
+  renderOrcRanking(lancamentosDoMes(orcMesAtual).filter(l => l.tipo === 'despesa'));
 }
 
 function renderOrcRanking(despesas) {
-  const cats = agruparPorCategoria(despesas).sort((a, b) => b.total - a.total).slice(0, 8);
-  const card = document.getElementById('orcRankingCard');
-  if (!cats.length) { card.innerHTML = '<div class="orc-empty">Sem despesas lançadas neste mês.</div>'; return; }
-  const max = cats[0].total || 1;
-  card.innerHTML = cats.map(c => `
-    <div class="orc-rank-row">
-      <div class="orc-rank-top"><span class="cat">${escapeHtml(c.categoria)}</span><span class="tabular">${brl(c.total)}</span></div>
-      <div class="orc-rank-bar-track"><div class="orc-rank-bar-fill" style="width:${(c.total / max * 100).toFixed(1)}%"></div></div>
-    </div>
-  `).join('');
+  const wrap = document.getElementById('orcRankWrap');
+  const nota = document.getElementById('orcRankNota');
+  if (!wrap) return;
+
+  const map = {};
+  despesas.forEach(l => {
+    const chave = orcRankModo === 'grupo' ? (l.grupo || 'Sem grupo') : l.categoria;
+    map[chave] = (map[chave] || 0) + Number(l.valor);
+  });
+  let itens = Object.entries(map).map(([nome, total]) => ({ nome, total })).sort((a, b) => b.total - a.total);
+
+  if (!itens.length) {
+    wrap.innerHTML = '<div class="orc-empty">Sem despesas lançadas neste mês.</div>';
+    nota.textContent = '';
+    return;
+  }
+
+  const totalGeral = itens.reduce((s, i) => s + i.total, 0);
+  // Nunca truncar em silêncio: o excedente vira uma faixa "Outras (n)" explícita.
+  const LIMITE = 10;
+  if (itens.length > LIMITE) {
+    const cauda = itens.slice(LIMITE - 1);
+    itens = itens.slice(0, LIMITE - 1).concat([{ nome: `Outras (${cauda.length})`, total: cauda.reduce((s, i) => s + i.total, 0), agregado: true }]);
+  }
+  nota.textContent = `${brl(totalGeral)} em despesas · ${mesLabel(orcMesAtual + '-01')}`;
+
+  const W = 760, padL = 168, padR = 96, padT = 6;
+  const alturaLinha = 30, alturaBarra = 14;
+  const H = padT + itens.length * alturaLinha + 6;
+  const plotW = W - padL - padR;
+  const max = itens[0].total || 1;
+
+  const linhas = itens.map((it, i) => {
+    const yC = padT + i * alturaLinha + alturaLinha / 2;
+    const larg = Math.max(1, (it.total / max) * plotW);
+    const r = Math.min(4, larg);
+    const cor = it.agregado ? 'var(--text-muted)' : 'var(--series-1)';
+    // ponta arredondada na extremidade do dado, quadrada na linha de base
+    const d = `M${padL},${yC - alturaBarra / 2} L${padL + larg - r},${yC - alturaBarra / 2}
+               Q${padL + larg},${yC - alturaBarra / 2} ${padL + larg},${yC - alturaBarra / 2 + r}
+               L${padL + larg},${yC + alturaBarra / 2 - r}
+               Q${padL + larg},${yC + alturaBarra / 2} ${padL + larg - r},${yC + alturaBarra / 2}
+               L${padL},${yC + alturaBarra / 2} Z`;
+    const nomeCurto = it.nome.length > 24 ? it.nome.slice(0, 23) + '…' : it.nome;
+    return `
+      <text x="${padL - 10}" y="${yC + 4}" text-anchor="end" font-size="11.5" fill="var(--text-secondary)">${escapeHtml(nomeCurto)}</text>
+      <path d="${d}" fill="${cor}"/>
+      <text x="${padL + larg + 8}" y="${yC + 4}" font-size="11.5" fill="var(--text-primary)" font-weight="500">${brl(it.total)}</text>
+      <text x="${W - 4}" y="${yC + 4}" text-anchor="end" font-size="10.5" fill="var(--text-muted)">${(it.total / totalGeral * 100).toFixed(0)}%</text>
+      <title>${escapeHtml(it.nome)}: ${brl(it.total)} (${(it.total / totalGeral * 100).toFixed(1)}% das despesas do mês)</title>`;
+  }).join('');
+
+  const descricao = `Despesas de ${mesLabel(orcMesAtual + '-01')} por ${orcRankModo}, da maior para a menor.`;
+  wrap.innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${descricao}"><title>${descricao}</title>${linhas}</svg>`;
 }
 
 function renderOrcCategoriaTable(cats) {
   orcCatsAtuais = cats;
   const tbody = document.getElementById('orcCategoriaTableBody');
-  if (!cats.length) { tbody.innerHTML = '<tr><td colspan="3" class="orc-empty">Nenhum lançamento neste mês.</td></tr>'; return; }
+  if (!cats.length) { tbody.innerHTML = '<tr><td colspan="4" class="orc-empty">Nenhum lançamento neste mês.</td></tr>'; return; }
+  const totalPorTipo = {};
+  cats.forEach(c => { const t = c.itens[0].tipo; totalPorTipo[t] = (totalPorTipo[t] || 0) + c.total; });
+  const maxPorTipo = {};
+  cats.forEach(c => { const t = c.itens[0].tipo; maxPorTipo[t] = Math.max(maxPorTipo[t] || 0, c.total); });
+
   tbody.innerHTML = cats.map((c, i) => {
     const tipo = c.itens[0].tipo;
+    const share = totalPorTipo[tipo] ? c.total / totalPorTipo[tipo] : 0;
+    const larguraBarra = maxPorTipo[tipo] ? Math.max(2, (c.total / maxPorTipo[tipo]) * 54) : 2;
     const compartilhado = c.itens.some(it => it.compartilhado_com_luciano);
+    const cor = tipo === 'receita' ? 'var(--series-1)' : 'var(--series-6)';
     return `
     <tr class="orc-row-click" onclick="abrirLancamentosIdx(${i})">
       <td class="ticker-name">${escapeHtml(c.categoria)}${compartilhado ? '<span class="orc-chip">com Luciano</span>' : ''}</td>
       <td>${escapeHtml(c.grupo || '—')}</td>
+      <td class="tabular"><span class="orc-cell-bar" style="width:${larguraBarra.toFixed(0)}px;background:${cor}"></span>${(share * 100).toFixed(1)}%</td>
       <td class="tabular" style="${tipo === 'receita' ? 'color:var(--good)' : ''}">${brl(c.total)}</td>
     </tr>`;
   }).join('');
