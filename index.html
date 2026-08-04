@@ -452,6 +452,13 @@
   .orc-seg button.active { background:var(--text-primary); color:var(--surface); font-weight:600; }
 
   .orc-chip { font-size: 10px; padding: 2px 7px; border-radius: 999px; background: color-mix(in srgb, var(--series-1) 14%, transparent); color: var(--series-1); margin-left: 6px; white-space:nowrap; }
+  .orc-andamento {
+    display:flex; align-items:flex-start; gap:9px; margin-bottom:14px; padding:11px 14px;
+    border:1px solid color-mix(in srgb, var(--status-warning) 40%, var(--border));
+    background: color-mix(in srgb, var(--status-warning) 8%, transparent);
+    border-radius:11px; font-size:12.5px; color:var(--text-secondary); line-height:1.5;
+  }
+  .orc-andamento strong { color: var(--text-primary); }
   tbody tr.orc-row-click { cursor: pointer; }
   tbody tr.luciano-mes-atual td { background: color-mix(in srgb, var(--series-1) 9%, transparent); font-weight:600; }
   .orc-empty { font-size: 13px; color: var(--text-muted); padding: 20px 4px; text-align:center; }
@@ -887,6 +894,7 @@
 
       <!-- Tiles do mês -->
       <section class="orc-sec">
+        <div id="orcMesAndamento" class="orc-andamento" style="display:none"></div>
         <div class="orc-tiles">
           <div class="tile orc-tile-hero">
             <div class="label">Saldo do mês</div>
@@ -3743,6 +3751,19 @@ function renderOrcamento() {
   const i = serie.findIndex(s => s.mes === orcMesAtual);
   const atual = serie[i] || { receita: 0, despesa: 0, saldo: 0 };
   const anterior = i > 0 ? serie[i - 1] : null;
+
+  // Mês corrente ainda está recebendo lançamentos — sem esse aviso, um saldo
+  // parcial (ex: só o vale-refeição lançado) passa por resultado fechado.
+  const aviso = document.getElementById('orcMesAndamento');
+  if (orcMesAtual === new Date().toISOString().slice(0, 7)) {
+    const nReceitas = doMes.filter(l => l.tipo === 'receita').length;
+    aviso.innerHTML = `<span>⏳</span><span><strong>Mês em andamento.</strong> Os lançamentos ainda estão entrando` +
+      (nReceitas <= 1 ? ' — só ' + nReceitas + ' entrada registrada até agora, então o saldo abaixo não reflete o mês fechado.' : ', então o saldo abaixo ainda vai mudar.') +
+      `</span>`;
+    aviso.style.display = 'flex';
+  } else {
+    aviso.style.display = 'none';
+  }
 
   const saldoEl = document.getElementById('orcSaldoValue');
   saldoEl.textContent = brl(atual.saldo);
