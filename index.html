@@ -1026,17 +1026,13 @@
                 <input type="text" id="orcDescricao" placeholder="Ex: mercado do mês">
               </label>
             </div>
-            <div class="orc-share-toggle" id="orcShareWrap" style="display:none">
-              <label style="display:flex;align-items:center;gap:6px;">
-                <input type="checkbox" id="orcCompartilhado" onchange="atualizarFormOrcamento()"> Compartilhado com Luciano (divide 50/50)
-              </label>
-              <label id="orcPagoPorWrap" style="display:none;align-items:center;gap:6px;">
-                Pago por
-                <select id="orcPagoPor">
-                  <option value="marcia">Marcia</option>
-                  <option value="luciano">Luciano</option>
-                </select>
-              </label>
+            <div id="orcShareWrap" style="display:none;margin-top:16px;">
+              <div style="font-size:12px;color:var(--text-secondary);margin-bottom:7px;">Esta despesa é…</div>
+              <div class="orc-seg" id="orcSeg">
+                <button type="button" id="orcSegSo" class="active" onclick="setCompartilhado(false)">Só minha</button>
+                <button type="button" id="orcSegDiv" onclick="setCompartilhado(true)">Dividida com o Luciano</button>
+              </div>
+              <div id="orcShareNota" style="font-size:11.5px;color:var(--text-muted);margin-top:7px;line-height:1.5;"></div>
             </div>
             <div class="ops-submit" style="margin-top:14px;">
               <button type="submit" class="btn-primary" id="orcSalvarBtn" style="width:auto;padding:10px 20px;">Adicionar lançamento</button>
@@ -3702,11 +3698,25 @@ function popularCategoriasDatalist() {
   document.getElementById('orcCategoriasList').innerHTML = cats.map(c => `<option value="${escapeHtml(c)}">`).join('');
 }
 
+// Escolha explícita entre "só minha" e "dividida" — antes era um checkbox
+// discreto, fácil de passar batido, e classificar errado desequilibra o acerto.
+let orcCompartilhado = false;
+
+function setCompartilhado(valor) {
+  orcCompartilhado = !!valor;
+  document.getElementById('orcSegSo').classList.toggle('active', !orcCompartilhado);
+  document.getElementById('orcSegDiv').classList.toggle('active', orcCompartilhado);
+  document.getElementById('orcShareNota').textContent = orcCompartilhado
+    ? 'Entra no acerto com o Luciano: metade fica por conta dele. Lance aqui só o que VOCÊ pagou — o que ele paga vem automático do sistema dele.'
+    : 'Fica só no seu orçamento, fora do acerto com o Luciano.';
+}
+
 function atualizarFormOrcamento() {
   const tipo = document.getElementById('orcTipo').value;
-  document.getElementById('orcShareWrap').style.display = tipo === 'despesa' ? 'flex' : 'none';
-  const compartilhado = document.getElementById('orcCompartilhado').checked;
-  document.getElementById('orcPagoPorWrap').style.display = compartilhado ? 'flex' : 'none';
+  const ehDespesa = tipo === 'despesa';
+  document.getElementById('orcShareWrap').style.display = ehDespesa ? 'block' : 'none';
+  if (!ehDespesa) setCompartilhado(false); // receita nunca é compartilhada
+  else setCompartilhado(orcCompartilhado);
 }
 
 function lancamentosDoMes(mes) {
@@ -4327,8 +4337,10 @@ async function salvarLancamento(event) {
   const grupo = document.getElementById('orcGrupo').value || null;
   const valor = parseFloat(document.getElementById('orcValor').value);
   const descricao = document.getElementById('orcDescricao').value.trim() || null;
-  const compartilhado = tipo === 'despesa' && document.getElementById('orcCompartilhado').checked;
-  const pagoPor = compartilhado ? document.getElementById('orcPagoPor').value : null;
+  const compartilhado = tipo === 'despesa' && orcCompartilhado;
+  // Neste sistema só entra o que a Marcia pagou. O que o Luciano paga vive no
+  // sistema dele e chega pelo feed — gravar aqui contaria a mesma despesa duas vezes.
+  const pagoPor = compartilhado ? 'marcia' : null;
   if (!data || !categoria || !(valor > 0)) {
     erroEl.textContent = 'Preencha data, categoria e valor (maior que zero).';
     erroEl.style.display = 'block';
