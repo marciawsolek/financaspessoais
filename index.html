@@ -964,6 +964,7 @@
           <span class="collapse-chevron" id="lucianoChevron">▾</span>
         </div>
         <div class="collapsible-body" id="lucianoBody" style="display:none">
+          <div id="lucianoStatus" style="font-size:11.5px;margin-bottom:12px;"></div>
           <div class="ta-grid" id="lucianoStats"></div>
 
           <div class="ops-lista-wrap">
@@ -3662,7 +3663,7 @@ async function loadOrcamentoData() {
   try {
     const { data, error } = await sb.from('lancamentos_domesticos').select('*').order('data');
     if (error) throw error;
-    DATA_ORC = { lancamentos: data || [] };
+    DATA_ORC = { lancamentos: data || [], gastosLuciano: [], statusLuciano: null };
     document.getElementById('orcEmptyState').style.display = DATA_ORC.lancamentos.length ? 'none' : 'block';
     document.getElementById('orcConteudo').style.display = '';
     popularMesesOrcamento();
@@ -3671,6 +3672,7 @@ async function loadOrcamentoData() {
     if (!dataInput.value) dataInput.value = new Date().toISOString().slice(0, 10);
     atualizarFormOrcamento();
     renderOrcamento();
+    buscarGastosLuciano(); // não bloqueia o render — atualiza o painel quando responder
   } catch (err) {
     console.error(err);
     orcamentoCarregado = false; // deixa tentar de novo se ela trocar de aba de novo
@@ -3755,7 +3757,7 @@ function renderOrcamento() {
   renderOrcChart(serie);
   renderOrcRanking(despesas);
   renderOrcCategorias(agruparPorCategoria(doMes));
-  renderLucianoPanel(doMes);
+  renderLucianoPanel();
   renderOrcListaMes(doMes);
 }
 
@@ -4152,9 +4154,10 @@ function fecharLancamentos() {
 // "VALOR POR PESSOA", "TOTAL A PAGAR" são recalculados a cada mês). Mostrar o
 // acumulado do ano como resultado principal dava um número assustador e sem
 // sentido — soma de meses que já foram acertados.
-function renderLucianoPanel(doMesLancamentos) {
+function renderLucianoPanel() {
   const somar = lista => lista.reduce((s, l) => s + Number(l.valor), 0);
-  const doMes = doMesLancamentos.filter(l => l.compartilhado_com_luciano);
+  const todas = gastosCompartilhados();
+  const doMes = todas.filter(l => l.mes === orcMesAtual);
   const totalMes = somar(doMes);
   const pagoMarcia = somar(doMes.filter(l => l.pago_por === 'marcia'));
   const pagoLuciano = somar(doMes.filter(l => l.pago_por === 'luciano'));
@@ -4186,12 +4189,12 @@ function renderLucianoPanel(doMesLancamentos) {
     `O total soma todos os meses sem descontar acertos já feitos — ${brl(Math.abs(acumulado))}. ` +
     `Só vale como referência se nada foi acertado ainda; fechando mês a mês, o que conta é a linha do mês.`;
 
-  renderLucianoMeses();
+  renderLucianoMeses(todas);
+  renderStatusLuciano();
 
-  const compartilhadasMes = doMesLancamentos.filter(l => l.compartilhado_com_luciano);
   const lista = document.getElementById('lucianoLista');
-  lista.innerHTML = !compartilhadasMes.length ? '<div class="op-vazio">Nenhuma despesa compartilhada neste mês.</div>' :
-    [...compartilhadasMes].sort((a, b) => String(b.data).localeCompare(String(a.data))).map(l => `
+  lista.innerHTML = !doMes.length ? '<div class="op-vazio">Nenhuma despesa compartilhada neste mês.</div>' :
+    [...doMes].sort((a, b) => String(b.data).localeCompare(String(a.data))).map(l => `
     <div class="op-row">
       <div>${escapeHtml(l.categoria)}${l.descricao ? ' · ' + escapeHtml(l.descricao) : ''} <span class="orc-chip">${l.pago_por === 'luciano' ? 'Luciano' : 'Marcia'} pagou</span></div>
       <div class="tabular">${brl(Number(l.valor))}</div>
@@ -4199,18 +4202,75 @@ function renderLucianoPanel(doMesLancamentos) {
   `).join('');
 }
 
+// Deixa explícito se o painel está vendo os dois lados ou só o dela — sem isso
+// um saldo "Luciano deve tudo" pode ser real ou só falta de conexão.
+function renderStatusLuciano() {
+  const el = document.getElementById('lucianoStatus');
+  if (!el) return;
+  const s = DATA_ORC.statusLuciano;
+  if (!s) { el.textContent = 'Conectando ao sistema do Luciano…'; el.style.color = 'var(--text-muted)'; return; }
+  if (s.ok) {
+    el.textContent = `Conectado ao sistema do Luciano · ${s.n} gasto(s) que ele pagou`;
+    el.style.color = 'var(--good)';
+  } else {
+    el.textContent = 'Sem conexão com o sistema do Luciano — mostrando só o que você pagou, então o saldo abaixo está incompleto.';
+    el.style.color = 'var(--status-warning)';
+  }
+}
+
+// Busca no sistema do Luciano (via Edge Function, pra o segredo não ficar no
+// HTML). Tolerante: se a função não existir ainda ou o lado dele estiver fora,
+// o painel segue funcionando só com o lado da Marcia.
+async function buscarGastosLuciano() {
+  try {
+    const { data: { session } } = await sb.auth.getSession();
+    if (!session) return;
+    const res = await fetch(`${SUPABASE_URL}/functions/v1/gastos-luciano`, {
+      headers: { Authorization: `Bearer ${session.access_token}` },
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok || body.error) throw new Error(body.error || `HTTP ${res.status}`);
+    DATA_ORC.gastosLuciano = body.gastos || [];
+    DATA_ORC.statusLuciano = { ok: true, em: body.gerado_em, n: DATA_ORC.gastosLuciano.length };
+  } catch (err) {
+    console.warn('Sistema do Luciano indisponível (Edge Function gastos-luciano):', err.message);
+    DATA_ORC.gastosLuciano = [];
+    DATA_ORC.statusLuciano = { ok: false, erro: err.message };
+  }
+  if (DATA_ORC) renderOrcamento();
+}
+
+// Junta os dois lados do acerto. Regra combinada entre os sistemas: cada despesa
+// mora no sistema de quem pagou — as dela vêm do banco, as dele vêm do feed.
+// Se o feed não responder, cai pro que houver marcado como 'luciano' no banco
+// (comportamento antigo), pra nunca ficar sem nada na tela.
+function gastosCompartilhados() {
+  const dela = DATA_ORC.lancamentos
+    .filter(l => l.compartilhado_com_luciano && l.pago_por !== 'luciano')
+    .map(l => ({ mes: String(l.data).slice(0, 7), data: l.data, categoria: l.categoria,
+                 descricao: l.descricao, valor: Number(l.valor), pago_por: 'marcia' }));
+  const feed = DATA_ORC.gastosLuciano || [];
+  const dele = feed.length
+    ? feed.map(g => ({ mes: g.mes, data: g.data, categoria: g.categoria,
+                       descricao: g.descricao, valor: Number(g.valor_total), pago_por: 'luciano' }))
+    : DATA_ORC.lancamentos
+        .filter(l => l.compartilhado_com_luciano && l.pago_por === 'luciano')
+        .map(l => ({ mes: String(l.data).slice(0, 7), data: l.data, categoria: l.categoria,
+                     descricao: l.descricao, valor: Number(l.valor), pago_por: 'luciano' }));
+  return [...dela, ...dele];
+}
+
 // Tabela de todos os meses + total, pra ela não precisar trocar o filtro do topo
 // só pra conferir outro mês. Clicar numa linha muda o mês selecionado da aba.
-function renderLucianoMeses() {
+function renderLucianoMeses(compart) {
   const tbody = document.getElementById('lucianoMesesBody');
   if (!tbody) return;
   const somar = lista => lista.reduce((s, l) => s + Number(l.valor), 0);
-  const compart = DATA_ORC.lancamentos.filter(l => l.compartilhado_com_luciano);
-  const meses = [...new Set(compart.map(l => l.data.slice(0, 7)))].sort();
+  const meses = [...new Set(compart.map(l => l.mes))].sort();
   if (!meses.length) { tbody.innerHTML = '<tr><td colspan="5" class="orc-empty">Nenhuma despesa compartilhada lançada.</td></tr>'; return; }
 
   const linhas = meses.map(m => {
-    const doMes = compart.filter(l => l.data.slice(0, 7) === m);
+    const doMes = compart.filter(l => l.mes === m);
     const total = somar(doMes);
     const pm = somar(doMes.filter(l => l.pago_por === 'marcia'));
     const pl = somar(doMes.filter(l => l.pago_por === 'luciano'));
