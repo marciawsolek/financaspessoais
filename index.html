@@ -453,6 +453,7 @@
 
   .orc-chip { font-size: 10px; padding: 2px 7px; border-radius: 999px; background: color-mix(in srgb, var(--series-1) 14%, transparent); color: var(--series-1); margin-left: 6px; white-space:nowrap; }
   tbody tr.orc-row-click { cursor: pointer; }
+  tbody tr.luciano-mes-atual td { background: color-mix(in srgb, var(--series-1) 9%, transparent); font-weight:600; }
   .orc-empty { font-size: 13px; color: var(--text-muted); padding: 20px 4px; text-align:center; }
   .orc-share-toggle { display:flex; align-items:center; gap:8px; font-size:13px; color:var(--text-secondary); margin-top:4px; }
   /* ---- Cabeçalho de seção do Orçamento: dá respiro e hierarquia entre blocos ---- */
@@ -964,8 +965,20 @@
         </div>
         <div class="collapsible-body" id="lucianoBody" style="display:none">
           <div class="ta-grid" id="lucianoStats"></div>
+
           <div class="ops-lista-wrap">
-            <div class="ops-lista-titulo">Despesas compartilhadas do mês</div>
+            <div class="ops-lista-titulo">Mês a mês · clique num mês para abri-lo</div>
+            <div class="table-wrap">
+              <table>
+                <thead><tr><th>Mês</th><th>Compartilhado</th><th>Pago Marcia</th><th>Pago Luciano</th><th>Luciano deve</th></tr></thead>
+                <tbody id="lucianoMesesBody"></tbody>
+              </table>
+            </div>
+            <div style="font-size:11.5px;color:var(--text-muted);margin-top:10px;line-height:1.5;" id="lucianoAcumulado"></div>
+          </div>
+
+          <div class="ops-lista-wrap">
+            <div class="ops-lista-titulo">Despesas compartilhadas do mês selecionado</div>
             <div id="lucianoLista"></div>
           </div>
         </div>
@@ -4135,25 +4148,45 @@ function fecharLancamentos() {
 
 // Saldo é calculado sobre TODO o histórico (não só o mês selecionado) — é uma
 // dívida que se acumula mês a mês, igual à lógica da planilha original.
+// O acerto é MENSAL, como na planilha (linhas 115-119: "TOTAL PAGO POR PESSOA",
+// "VALOR POR PESSOA", "TOTAL A PAGAR" são recalculados a cada mês). Mostrar o
+// acumulado do ano como resultado principal dava um número assustador e sem
+// sentido — soma de meses que já foram acertados.
 function renderLucianoPanel(doMesLancamentos) {
-  const todasCompartilhadas = DATA_ORC.lancamentos.filter(l => l.compartilhado_com_luciano);
-  const totalGeral = todasCompartilhadas.reduce((s, l) => s + Number(l.valor), 0);
-  const pagoMarciaGeral = todasCompartilhadas.filter(l => l.pago_por === 'marcia').reduce((s, l) => s + Number(l.valor), 0);
-  const pagoLucianoGeral = todasCompartilhadas.filter(l => l.pago_por === 'luciano').reduce((s, l) => s + Number(l.valor), 0);
-  const metadeGeral = totalGeral / 2;
-  const saldoMarcia = pagoMarciaGeral - metadeGeral; // positivo = Luciano deve pra Marcia
+  const somar = lista => lista.reduce((s, l) => s + Number(l.valor), 0);
+  const doMes = doMesLancamentos.filter(l => l.compartilhado_com_luciano);
+  const totalMes = somar(doMes);
+  const pagoMarcia = somar(doMes.filter(l => l.pago_por === 'marcia'));
+  const pagoLuciano = somar(doMes.filter(l => l.pago_por === 'luciano'));
+  const metade = totalMes / 2;
+  const saldo = pagoMarcia - metade; // positivo = Luciano deve pra Marcia
+  const mesTxt = mesLabel(orcMesAtual + '-01');
 
-  document.getElementById('lucianoSummary').textContent = !todasCompartilhadas.length
-    ? 'Nenhuma despesa compartilhada lançada ainda'
-    : (Math.abs(saldoMarcia) < 0.01 ? 'Contas em dia' : (saldoMarcia > 0 ? `Luciano deve ${brl(saldoMarcia)}` : `Marcia deve ${brl(-saldoMarcia)}`));
+  document.getElementById('lucianoSummary').textContent = !doMes.length
+    ? `Nenhuma despesa compartilhada em ${mesTxt}`
+    : (Math.abs(saldo) < 0.01 ? `${mesTxt} · contas em dia`
+      : `${mesTxt} · ${saldo > 0 ? 'Luciano deve' : 'Marcia deve'} ${brl(Math.abs(saldo))}`);
+
+  // Acumulado do período todo — só faz sentido se nenhum mês foi acertado ainda.
+  const todas = DATA_ORC.lancamentos.filter(l => l.compartilhado_com_luciano);
+  const acumulado = somar(todas.filter(l => l.pago_por === 'marcia')) - somar(todas) / 2;
 
   document.getElementById('lucianoStats').innerHTML = `
-    <div class="ta-stat"><div class="ta-label">Total compartilhado (histórico)</div><div class="ta-value tabular">${brl(totalGeral)}</div></div>
-    <div class="ta-stat"><div class="ta-label">Pago por Marcia</div><div class="ta-value tabular">${brl(pagoMarciaGeral)}</div></div>
-    <div class="ta-stat"><div class="ta-label">Pago por Luciano</div><div class="ta-value tabular">${brl(pagoLucianoGeral)}</div></div>
-    <div class="ta-stat"><div class="ta-label">Cota de cada um (50%)</div><div class="ta-value tabular">${brl(metadeGeral)}</div></div>
-    <div class="ta-stat"><div class="ta-label">${saldoMarcia >= 0 ? 'Luciano deve a Marcia' : 'Marcia deve a Luciano'}</div><div class="ta-value tabular" style="color:var(--series-1)">${brl(Math.abs(saldoMarcia))}</div></div>
+    <div class="ta-stat"><div class="ta-label">Compartilhado em ${mesTxt}</div><div class="ta-value tabular">${brl(totalMes)}</div></div>
+    <div class="ta-stat"><div class="ta-label">Pago por Marcia</div><div class="ta-value tabular">${brl(pagoMarcia)}</div></div>
+    <div class="ta-stat"><div class="ta-label">Pago por Luciano</div><div class="ta-value tabular">${brl(pagoLuciano)}</div></div>
+    <div class="ta-stat"><div class="ta-label">Cota de cada um (50%)</div><div class="ta-value tabular">${brl(metade)}</div></div>
+    <div class="ta-stat" style="border-color:color-mix(in srgb, var(--series-1) 45%, var(--border))">
+      <div class="ta-label">${saldo >= 0 ? 'Luciano deve neste mês' : 'Marcia deve neste mês'}</div>
+      <div class="ta-value tabular" style="color:var(--series-1)">${brl(Math.abs(saldo))}</div>
+    </div>
   `;
+
+  document.getElementById('lucianoAcumulado').textContent =
+    `O total soma todos os meses sem descontar acertos já feitos — ${brl(Math.abs(acumulado))}. ` +
+    `Só vale como referência se nada foi acertado ainda; fechando mês a mês, o que conta é a linha do mês.`;
+
+  renderLucianoMeses();
 
   const compartilhadasMes = doMesLancamentos.filter(l => l.compartilhado_com_luciano);
   const lista = document.getElementById('lucianoLista');
@@ -4164,6 +4197,47 @@ function renderLucianoPanel(doMesLancamentos) {
       <div class="tabular">${brl(Number(l.valor))}</div>
     </div>
   `).join('');
+}
+
+// Tabela de todos os meses + total, pra ela não precisar trocar o filtro do topo
+// só pra conferir outro mês. Clicar numa linha muda o mês selecionado da aba.
+function renderLucianoMeses() {
+  const tbody = document.getElementById('lucianoMesesBody');
+  if (!tbody) return;
+  const somar = lista => lista.reduce((s, l) => s + Number(l.valor), 0);
+  const compart = DATA_ORC.lancamentos.filter(l => l.compartilhado_com_luciano);
+  const meses = [...new Set(compart.map(l => l.data.slice(0, 7)))].sort();
+  if (!meses.length) { tbody.innerHTML = '<tr><td colspan="5" class="orc-empty">Nenhuma despesa compartilhada lançada.</td></tr>'; return; }
+
+  const linhas = meses.map(m => {
+    const doMes = compart.filter(l => l.data.slice(0, 7) === m);
+    const total = somar(doMes);
+    const pm = somar(doMes.filter(l => l.pago_por === 'marcia'));
+    const pl = somar(doMes.filter(l => l.pago_por === 'luciano'));
+    return { mes: m, total, pm, pl, deve: pm - total / 2 };
+  });
+  const tot = linhas.reduce((a, l) => ({
+    total: a.total + l.total, pm: a.pm + l.pm, pl: a.pl + l.pl, deve: a.deve + l.deve,
+  }), { total: 0, pm: 0, pl: 0, deve: 0 });
+
+  const cel = v => `<td class="tabular">${brl(v)}</td>`;
+  tbody.innerHTML = linhas.map(l => `
+    <tr class="orc-row-click${l.mes === orcMesAtual ? ' luciano-mes-atual' : ''}" onclick="irParaMes('${l.mes}')">
+      <td class="ticker-name">${mesLabel(l.mes + '-01')}</td>
+      ${cel(l.total)}${cel(l.pm)}${cel(l.pl)}
+      <td class="tabular" style="color:var(--series-1);font-weight:600">${brl(Math.abs(l.deve))}</td>
+    </tr>`).join('') + `
+    <tr class="totals-row">
+      <td>Total do período</td>${cel(tot.total)}${cel(tot.pm)}${cel(tot.pl)}
+      <td class="tabular">${brl(Math.abs(tot.deve))}</td>
+    </tr>`;
+}
+
+function irParaMes(mes) {
+  const sel = document.getElementById('orcMesSelect');
+  if (!sel || ![...sel.options].some(o => o.value === mes)) return;
+  sel.value = mes;
+  renderOrcamento();
 }
 
 function renderOrcListaMes(doMes) {
