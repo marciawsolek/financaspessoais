@@ -4171,7 +4171,6 @@ function renderLucianoPanel() {
       : `${mesTxt} · ${saldo > 0 ? 'Luciano deve' : 'Marcia deve'} ${brl(Math.abs(saldo))}`);
 
   // Acumulado do período todo — só faz sentido se nenhum mês foi acertado ainda.
-  const todas = DATA_ORC.lancamentos.filter(l => l.compartilhado_com_luciano);
   const acumulado = somar(todas.filter(l => l.pago_por === 'marcia')) - somar(todas) / 2;
 
   document.getElementById('lucianoStats').innerHTML = `
