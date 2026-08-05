@@ -3176,28 +3176,49 @@ function renderAssetTable() {
 
   if (conf.dividendos) {
     const ativos = listaAtivosDividendos();
-    groupTotalEl.innerHTML = '';
-    head.innerHTML = ['Ativo', 'Categoria', 'Último mês', 'Provento', 'Variação vs mês anterior', 'DY do mês', '']
+    // União de todos os meses com provento lançado em QUALQUER ativo — cada mês
+    // vira uma coluna, igual à planilha (ticker × mês, total no final).
+    const todosMeses = [...new Set(ativos.flatMap(a => (DATA.proventosPorAtivo[a.id] || []).map(p => p.mes)))].sort();
+
+    head.innerHTML = ['Ativo', 'Categoria', ...todosMeses.map(m => mesLabel(m + '-01')), 'Total', 'DY do mês', '']
       .map(c => `<th>${c}</th>`).join('');
-    body.innerHTML = ativos.map(a => {
-      const hist = (DATA.proventosPorAtivo[a.id] || []).slice().sort((x, y) => x.mes.localeCompare(y.mes));
-      const ultimo = hist[hist.length - 1];
-      const penultimo = hist[hist.length - 2];
-      const variacao = (ultimo && penultimo && penultimo.valor) ? (ultimo.valor - penultimo.valor) / penultimo.valor : null;
+
+    const totalPorMes = {}; todosMeses.forEach(m => totalPorMes[m] = 0);
+    let totalGeral = 0;
+
+    const linhas = ativos.map(a => {
+      const hist = DATA.proventosPorAtivo[a.id] || [];
+      const porMes = {};
+      hist.forEach(p => { porMes[p.mes] = p.valor; totalPorMes[p.mes] += p.valor; });
+      const totalAtivo = hist.reduce((s, p) => s + p.valor, 0);
+      totalGeral += totalAtivo;
+
+      const mesesComValor = todosMeses.filter(m => porMes[m] != null);
+      const ultimoMes = mesesComValor[mesesComValor.length - 1];
       const cotacaoAtual = a.qtd ? valorEfetivo(a) / a.qtd : null;
-      const dy = (ultimo && cotacaoAtual && a.qtd) ? (ultimo.valor / a.qtd) / cotacaoAtual : null;
-      const variClass = variacao == null ? '' : (variacao >= 0 ? 'pl-pos' : 'pl-neg');
+      const dy = (ultimoMes && cotacaoAtual && a.qtd) ? (porMes[ultimoMes] / a.qtd) / cotacaoAtual : null;
+
+      const celulasMes = todosMeses.map(m => `<td class="tabular">${porMes[m] != null ? brl(porMes[m]) : '—'}</td>`).join('');
       return `<tr>
         <td class="ticker-name">${a.ticker}</td>
         <td class="tabular">${a.categoriaDiv}</td>
-        <td class="tabular">${ultimo ? mesLabel(ultimo.mes + '-01') : '—'}</td>
-        <td class="tabular">${ultimo ? brl(ultimo.valor) : '—'}</td>
-        <td class="tabular ${variClass}">${variacao != null ? (variacao >= 0 ? '+' : '') + pct(variacao) : '—'}</td>
+        ${celulasMes}
+        <td class="tabular" style="font-weight:600">${brl(totalAtivo)}</td>
         <td class="tabular">${dy != null ? pct(dy) : '—'}</td>
         <td><button class="row-action" onclick="abrirDividendos('${a.id}')">Dividendos${hist.length ? ` (${hist.length})` : ''}</button></td>
       </tr>`;
     }).join('');
-    if (!ativos.length) body.innerHTML = `<tr><td colspan="7" style="text-align:center;color:var(--text-muted)">Nenhum ativo elegível.</td></tr>`;
+
+    const totalRow = `<tr class="totals-row">
+      <td class="ticker-name">Total</td><td></td>
+      ${todosMeses.map(m => `<td class="tabular">${brl(totalPorMes[m])}</td>`).join('')}
+      <td class="tabular">${brl(totalGeral)}</td>
+      <td></td><td></td>
+    </tr>`;
+
+    groupTotalEl.innerHTML = `Total recebido no período: <strong>${brl(totalGeral)}</strong>`;
+    body.innerHTML = (ativos.length ? linhas + totalRow
+      : `<tr><td colspan="${4 + todosMeses.length}" style="text-align:center;color:var(--text-muted)">Nenhum ativo elegível.</td></tr>`);
     return;
   }
 
