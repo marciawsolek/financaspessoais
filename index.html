@@ -1009,7 +1009,14 @@
           </div>
 
           <div class="ops-lista-wrap">
-            <div class="ops-lista-titulo">Despesas compartilhadas do mês selecionado</div>
+            <div class="orc-toggle-row">
+              <div class="ops-lista-titulo" style="margin-bottom:0;">Despesas compartilhadas do mês selecionado</div>
+              <div class="orc-seg" id="lucianoFiltroSeg">
+                <button id="lucianoFiltroGeral" class="active" onclick="setLucianoFiltro('geral')">Geral</button>
+                <button id="lucianoFiltroMarcia" onclick="setLucianoFiltro('marcia')">Marcia</button>
+                <button id="lucianoFiltroLuciano" onclick="setLucianoFiltro('luciano')">Luciano</button>
+              </div>
+            </div>
             <div id="lucianoLista"></div>
           </div>
         </div>
@@ -4314,9 +4321,30 @@ function renderLucianoPanel() {
   renderLucianoMeses(todas);
   renderStatusLuciano();
 
+  lucianoDoMesAtual = doMes; // guardado pra setLucianoFiltro() não precisar recalcular tudo
+  renderLucianoLista();
+}
+
+// Filtro Geral/Marcia/Luciano na lista de despesas compartilhadas do mês —
+// só reordena a exibição, não mexe em nenhum total do painel.
+let lucianoFiltro = 'geral';
+let lucianoDoMesAtual = [];
+
+function setLucianoFiltro(filtro) {
+  lucianoFiltro = filtro;
+  document.getElementById('lucianoFiltroGeral').classList.toggle('active', filtro === 'geral');
+  document.getElementById('lucianoFiltroMarcia').classList.toggle('active', filtro === 'marcia');
+  document.getElementById('lucianoFiltroLuciano').classList.toggle('active', filtro === 'luciano');
+  renderLucianoLista();
+}
+
+function renderLucianoLista() {
   const lista = document.getElementById('lucianoLista');
-  lista.innerHTML = !doMes.length ? '<div class="op-vazio">Nenhuma despesa compartilhada neste mês.</div>' :
-    [...doMes].sort((a, b) => String(b.data).localeCompare(String(a.data))).map(l => `
+  if (!lista) return;
+  const filtrado = lucianoFiltro === 'geral' ? lucianoDoMesAtual : lucianoDoMesAtual.filter(l => l.pago_por === lucianoFiltro);
+  lista.innerHTML = !filtrado.length
+    ? `<div class="op-vazio">Nenhuma despesa ${lucianoFiltro === 'geral' ? 'compartilhada' : `paga por ${lucianoFiltro === 'marcia' ? 'Marcia' : 'Luciano'}`} neste mês.</div>`
+    : [...filtrado].sort((a, b) => String(b.data).localeCompare(String(a.data))).map(l => `
     <div class="op-row">
       <div>${escapeHtml(l.categoria)}${l.descricao ? ' · ' + escapeHtml(l.descricao) : ''} <span class="orc-chip">${l.pago_por === 'luciano' ? 'Luciano' : 'Marcia'} pagou</span></div>
       <div class="tabular">${brl(Number(l.valor))}</div>
