@@ -962,6 +962,27 @@
         <div class="orc-split" id="orcCategoriasSplit"></div>
       </section>
 
+      <!-- Total do período por categoria/grupo — independe do mês selecionado -->
+      <section class="orc-sec">
+        <div class="section-head collapsible" onclick="toggleSection('orcAno')">
+          <div class="section-title-wrap">
+            <h2>Total do período por categoria</h2>
+            <span class="section-summary" id="orcAnoPeriodo"></span>
+          </div>
+          <span class="collapse-chevron" id="orcAnoChevron">▾</span>
+        </div>
+        <div class="collapsible-body" id="orcAnoBody" style="display:none">
+          <div class="orc-toggle-row">
+            <div class="orc-seg" id="orcAnoSeg">
+              <button id="orcAnoCatBtn" class="active" onclick="setOrcAnoModo('categoria')">Por categoria</button>
+              <button id="orcAnoGrupoBtn" onclick="setOrcAnoModo('grupo')">Por grupo</button>
+            </div>
+            <span style="font-size:11.5px;color:var(--text-muted);">Soma todos os meses lançados, igual à coluna de total anual da planilha</span>
+          </div>
+          <div class="orc-split" id="orcAnoSplit"></div>
+        </div>
+      </section>
+
       <!-- Painel divisão com Luciano -->
       <section class="orc-sec">
         <div class="section-head collapsible" onclick="toggleSection('luciano')">
@@ -974,12 +995,13 @@
         <div class="collapsible-body" id="lucianoBody" style="display:none">
           <div id="lucianoStatus" style="font-size:11.5px;margin-bottom:12px;"></div>
           <div class="ta-grid" id="lucianoStats"></div>
+          <div id="lucianoAcaoRecebimento"></div>
 
           <div class="ops-lista-wrap">
             <div class="ops-lista-titulo">Mês a mês · clique num mês para abri-lo</div>
             <div class="table-wrap">
               <table>
-                <thead><tr><th>Mês</th><th>Compartilhado</th><th>Pago Marcia</th><th>Pago Luciano</th><th>Luciano deve</th></tr></thead>
+                <thead><tr><th>Mês</th><th>Compartilhado</th><th>Pago Marcia</th><th>Pago Luciano</th><th>Recebido</th><th>Luciano deve</th></tr></thead>
                 <tbody id="lucianoMesesBody"></tbody>
               </table>
             </div>
@@ -3732,11 +3754,20 @@ function lancamentosDoMes(mes) {
 }
 
 function agruparPorCategoria(lista) {
+  return agruparPor(lista, l => l.categoria);
+}
+
+// Agrupa por qualquer chave (categoria, grupo, ...) — usado no mês selecionado
+// e no total do período. O "grupo" exibido é sempre o da 1ª linha do balde;
+// como cada categoria tem um grupo fixo, não varia dentro do mesmo balde
+// (exceto ao agrupar por grupo, onde vira o próprio nome do balde).
+function agruparPor(lista, keyFn) {
   const map = {};
   lista.forEach(l => {
-    if (!map[l.categoria]) map[l.categoria] = { categoria: l.categoria, grupo: l.grupo, total: 0, itens: [] };
-    map[l.categoria].total += Number(l.valor);
-    map[l.categoria].itens.push(l);
+    const chave = keyFn(l) || 'Sem grupo';
+    if (!map[chave]) map[chave] = { categoria: chave, grupo: l.grupo, total: 0, itens: [] };
+    map[chave].total += Number(l.valor);
+    map[chave].itens.push(l);
   });
   return Object.values(map);
 }
@@ -3788,6 +3819,7 @@ function renderOrcamento() {
   renderOrcChart(serie);
   renderOrcRanking(despesas);
   renderOrcCategorias(agruparPorCategoria(doMes));
+  renderResumoAno(); // independe do mês selecionado, mas atualiza junto (ex: após novo lançamento)
   renderLucianoPanel();
   renderOrcListaMes(doMes);
 }
@@ -4105,19 +4137,20 @@ function renderOrcRanking(despesas) {
   wrap.innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${descricao}"><title>${descricao}</title>${linhas}</svg>`;
 }
 
-// Entradas e saídas ganham um painel próprio cada uma. Numa lista só elas se
-// misturavam e o "%" não dizia de que base era. A barra compara com a maior
-// categoria do próprio painel; o "%" é a fatia dentro do painel.
-function renderOrcCategorias(cats) {
-  const el = document.getElementById('orcCategoriasSplit');
-  if (!el) return;
-  const porTipo = tipo => cats.filter(c => c.itens[0].tipo === tipo).sort((a, b) => b.total - a.total);
+// Componente genérico de dois painéis (Entradas/Saídas) — usado tanto pro mês
+// selecionado quanto pro total do período. Numa lista só elas se misturavam e
+// o "%" não dizia de que base era. A barra compara com a maior categoria do
+// próprio painel; o "%" é a fatia dentro do painel. Devolve a lista na ordem
+// exibida, pra quem chamou guardar e resolver o drill-down por índice.
+function renderSplitPanel(elId, agrupados, onclickFn, vazioSufixo) {
+  const el = document.getElementById(elId);
+  if (!el) return [];
+  const porTipo = tipo => agrupados.filter(c => c.itens[0].tipo === tipo).sort((a, b) => b.total - a.total);
   const blocos = [
     { tipo: 'receita', titulo: 'Entradas', cor: ORC_COR_RECEITA, itens: porTipo('receita') },
     { tipo: 'despesa', titulo: 'Saídas', cor: ORC_COR_DESPESA, itens: porTipo('despesa') },
   ];
-  // orcCatsAtuais segue a ordem exibida — é por índice que o drill-down acha a categoria.
-  orcCatsAtuais = blocos.flatMap(b => b.itens);
+  const ordenado = blocos.flatMap(b => b.itens);
 
   let i = 0;
   el.innerHTML = blocos.map(bloco => {
@@ -4128,7 +4161,7 @@ function renderOrcCategorias(cats) {
       const share = total ? c.total / total : 0;
       const compartilhado = c.itens.some(it => it.compartilhado_com_luciano);
       return `
-      <button type="button" class="orc-line" onclick="abrirLancamentosIdx(${idx})">
+      <button type="button" class="orc-line" onclick="${onclickFn}(${idx})">
         <span class="orc-line-nome">${escapeHtml(c.categoria)}${compartilhado ? '<span class="orc-chip">Luciano</span>' : ''}</span>
         <span class="orc-line-val">${brl(c.total)}</span>
         <span class="orc-line-meta">
@@ -4137,7 +4170,7 @@ function renderOrcCategorias(cats) {
           <span class="orc-line-pct">${(share * 100).toFixed(1)}%</span>
         </span>
       </button>`;
-    }).join('') : `<div class="orc-empty">Nenhuma ${bloco.tipo} neste mês.</div>`;
+    }).join('') : `<div class="orc-empty">Nenhuma ${bloco.tipo}${vazioSufixo || ''}.</div>`;
     return `
       <div class="orc-panel">
         <div class="orc-panel-head">
@@ -4147,12 +4180,50 @@ function renderOrcCategorias(cats) {
         <div>${linhas}</div>
       </div>`;
   }).join('');
+  return ordenado;
+}
+
+function renderOrcCategorias(cats) {
+  orcCatsAtuais = renderSplitPanel('orcCategoriasSplit', cats, 'abrirLancamentosIdx', ' neste mês');
 }
 
 function abrirLancamentosIdx(i) {
   const c = orcCatsAtuais[i];
   if (!c) return;
   abrirLancamentosLista(`${c.categoria} — ${mesLabel(orcMesAtual + '-01')}`, `${c.itens.length} lançamento(s) · total ${brl(c.total)}`, c.itens);
+}
+
+// ---- Total do período por categoria/grupo (independe do mês selecionado) ----
+let orcAnoModo = 'categoria'; // 'categoria' | 'grupo'
+let orcCatsAnoAtuais = [];
+
+function setOrcAnoModo(modo) {
+  orcAnoModo = modo;
+  document.getElementById('orcAnoCatBtn').classList.toggle('active', modo === 'categoria');
+  document.getElementById('orcAnoGrupoBtn').classList.toggle('active', modo === 'grupo');
+  renderResumoAno();
+}
+
+function renderResumoAno() {
+  if (!DATA_ORC) return;
+  const keyFn = orcAnoModo === 'grupo' ? (l => l.grupo) : (l => l.categoria);
+  const agrupados = agruparPor(DATA_ORC.lancamentos, keyFn);
+  orcCatsAnoAtuais = renderSplitPanel('orcAnoSplit', agrupados, 'abrirLancamentosAnoIdx', ' no período');
+
+  const meses = [...new Set(DATA_ORC.lancamentos.map(l => l.data.slice(0, 7)))].sort();
+  const periodoEl = document.getElementById('orcAnoPeriodo');
+  if (periodoEl) {
+    periodoEl.textContent = meses.length
+      ? `${mesLabel(meses[0] + '-01')} a ${mesLabel(meses[meses.length - 1] + '-01')} (${meses.length} ${meses.length === 1 ? 'mês' : 'meses'})`
+      : 'Sem lançamentos ainda';
+  }
+}
+
+function abrirLancamentosAnoIdx(i) {
+  const c = orcCatsAnoAtuais[i];
+  if (!c) return;
+  const rotulo = orcAnoModo === 'grupo' ? `Grupo: ${c.categoria}` : c.categoria;
+  abrirLancamentosLista(`${rotulo} — todo o período`, `${c.itens.length} lançamento(s) · total ${brl(c.total)}`, c.itens);
 }
 
 function abrirLancamentosLista(titulo, sub, itens) {
@@ -4179,6 +4250,16 @@ function fecharLancamentos() {
   document.getElementById('lancOverlay').classList.remove('open');
 }
 
+// Categoria convencionada pra registrar quando a Marcia RECEBE o acerto do
+// Luciano (Pix, transferência etc.) — vira receita normal, e aqui é descontada
+// do saldo devedor pra ele não ficar "devendo" pra sempre depois de já ter pago.
+const CATEGORIA_ACERTO_LUCIANO = 'Acerto Luciano';
+function recebimentosAcerto(mes) {
+  return DATA_ORC.lancamentos
+    .filter(l => l.tipo === 'receita' && l.categoria === CATEGORIA_ACERTO_LUCIANO && l.data.slice(0, 7) === mes)
+    .reduce((s, l) => s + Number(l.valor), 0);
+}
+
 // Saldo é calculado sobre TODO o histórico (não só o mês selecionado) — é uma
 // dívida que se acumula mês a mês, igual à lógica da planilha original.
 // O acerto é MENSAL, como na planilha (linhas 115-119: "TOTAL PAGO POR PESSOA",
@@ -4193,7 +4274,9 @@ function renderLucianoPanel() {
   const pagoMarcia = somar(doMes.filter(l => l.pago_por === 'marcia'));
   const pagoLuciano = somar(doMes.filter(l => l.pago_por === 'luciano'));
   const metade = totalMes / 2;
-  const saldo = pagoMarcia - metade; // positivo = Luciano deve pra Marcia
+  const recebidoMes = recebimentosAcerto(orcMesAtual);
+  const saldoBruto = pagoMarcia - metade; // antes de descontar o que já foi recebido
+  const saldo = saldoBruto - recebidoMes; // positivo = Luciano ainda deve pra Marcia
   const mesTxt = mesLabel(orcMesAtual + '-01');
 
   document.getElementById('lucianoSummary').textContent = !doMes.length
@@ -4204,16 +4287,25 @@ function renderLucianoPanel() {
   // Acumulado do período todo — só faz sentido se nenhum mês foi acertado ainda.
   const acumulado = somar(todas.filter(l => l.pago_por === 'marcia')) - somar(todas) / 2;
 
+  const statRecebido = recebidoMes > 0.01
+    ? `<div class="ta-stat"><div class="ta-label">Já recebido de acerto em ${mesTxt}</div><div class="ta-value tabular" style="color:var(--good)">${brl(recebidoMes)}</div></div>`
+    : '';
+  const botaoReceber = saldo > 0.01
+    ? `<button type="button" class="btn-primary" style="width:auto;padding:9px 16px;margin-top:14px;" onclick="abrirRecebimentoLuciano(${saldo})">Registrar recebimento de ${brl(saldo)}</button>`
+    : '';
+
   document.getElementById('lucianoStats').innerHTML = `
     <div class="ta-stat"><div class="ta-label">Compartilhado em ${mesTxt}</div><div class="ta-value tabular">${brl(totalMes)}</div></div>
     <div class="ta-stat"><div class="ta-label">Pago por Marcia</div><div class="ta-value tabular">${brl(pagoMarcia)}</div></div>
     <div class="ta-stat"><div class="ta-label">Pago por Luciano</div><div class="ta-value tabular">${brl(pagoLuciano)}</div></div>
     <div class="ta-stat"><div class="ta-label">Cota de cada um (50%)</div><div class="ta-value tabular">${brl(metade)}</div></div>
+    ${statRecebido}
     <div class="ta-stat" style="border-color:color-mix(in srgb, var(--series-1) 45%, var(--border))">
-      <div class="ta-label">${saldo >= 0 ? 'Luciano deve neste mês' : 'Marcia deve neste mês'}</div>
+      <div class="ta-label">${saldo >= 0 ? 'Luciano ainda deve' : 'Marcia deve a mais'}</div>
       <div class="ta-value tabular" style="color:var(--series-1)">${brl(Math.abs(saldo))}</div>
     </div>
   `;
+  document.getElementById('lucianoAcaoRecebimento').innerHTML = botaoReceber;
 
   document.getElementById('lucianoAcumulado').textContent =
     `O total soma todos os meses sem descontar acertos já feitos — ${brl(Math.abs(acumulado))}. ` +
@@ -4297,30 +4389,46 @@ function renderLucianoMeses(compart) {
   if (!tbody) return;
   const somar = lista => lista.reduce((s, l) => s + Number(l.valor), 0);
   const meses = [...new Set(compart.map(l => l.mes))].sort();
-  if (!meses.length) { tbody.innerHTML = '<tr><td colspan="5" class="orc-empty">Nenhuma despesa compartilhada lançada.</td></tr>'; return; }
+  if (!meses.length) { tbody.innerHTML = '<tr><td colspan="6" class="orc-empty">Nenhuma despesa compartilhada lançada.</td></tr>'; return; }
 
   const linhas = meses.map(m => {
     const doMes = compart.filter(l => l.mes === m);
     const total = somar(doMes);
     const pm = somar(doMes.filter(l => l.pago_por === 'marcia'));
     const pl = somar(doMes.filter(l => l.pago_por === 'luciano'));
-    return { mes: m, total, pm, pl, deve: pm - total / 2 };
+    const recebido = recebimentosAcerto(m);
+    return { mes: m, total, pm, pl, recebido, deve: pm - total / 2 - recebido };
   });
   const tot = linhas.reduce((a, l) => ({
-    total: a.total + l.total, pm: a.pm + l.pm, pl: a.pl + l.pl, deve: a.deve + l.deve,
-  }), { total: 0, pm: 0, pl: 0, deve: 0 });
+    total: a.total + l.total, pm: a.pm + l.pm, pl: a.pl + l.pl, recebido: a.recebido + l.recebido, deve: a.deve + l.deve,
+  }), { total: 0, pm: 0, pl: 0, recebido: 0, deve: 0 });
 
   const cel = v => `<td class="tabular">${brl(v)}</td>`;
   tbody.innerHTML = linhas.map(l => `
     <tr class="orc-row-click${l.mes === orcMesAtual ? ' luciano-mes-atual' : ''}" onclick="irParaMes('${l.mes}')">
       <td class="ticker-name">${mesLabel(l.mes + '-01')}</td>
       ${cel(l.total)}${cel(l.pm)}${cel(l.pl)}
-      <td class="tabular" style="color:var(--series-1);font-weight:600">${brl(Math.abs(l.deve))}</td>
+      <td class="tabular"${l.recebido > 0.01 ? ' style="color:var(--good)"' : ''}>${l.recebido > 0.01 ? brl(l.recebido) : '—'}</td>
+      <td class="tabular" style="color:var(--series-1);font-weight:600">${Math.abs(l.deve) < 0.01 ? 'quitado' : brl(Math.abs(l.deve))}</td>
     </tr>`).join('') + `
     <tr class="totals-row">
-      <td>Total do período</td>${cel(tot.total)}${cel(tot.pm)}${cel(tot.pl)}
+      <td>Total do período</td>${cel(tot.total)}${cel(tot.pm)}${cel(tot.pl)}${cel(tot.recebido)}
       <td class="tabular">${brl(Math.abs(tot.deve))}</td>
     </tr>`;
+}
+
+// Pré-preenche o formulário como receita, categoria convencionada, valor e mês
+// já certos — ela só confere e clica em salvar. Reduz o risco de lançar com a
+// categoria errada e o saldo não descontar (ver recebimentosAcerto()).
+function abrirRecebimentoLuciano(valor) {
+  document.getElementById('orcTipo').value = 'receita';
+  atualizarFormOrcamento();
+  document.getElementById('orcCategoria').value = CATEGORIA_ACERTO_LUCIANO;
+  document.getElementById('orcValor').value = valor.toFixed(2);
+  document.getElementById('orcDescricao').value = `Recebimento do acerto de contas de ${mesLabel(orcMesAtual + '-01')}`;
+  if (!document.getElementById('orcData').value) document.getElementById('orcData').value = new Date().toISOString().slice(0, 10);
+  document.getElementById('orcForm').scrollIntoView({ behavior: 'smooth', block: 'center' });
+  document.getElementById('orcValor').focus();
 }
 
 function irParaMes(mes) {
