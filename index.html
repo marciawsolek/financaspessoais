@@ -656,29 +656,13 @@
     </div>
     <div class="card">
       <div id="divChart" class="div-chart"></div>
-      <div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--gridline);display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-        <button class="row-action" id="btnProventosFii" onclick="atualizarProventosFiiCvm()">Atualizar proventos de FII (CVM)</button>
-        <span id="proventosFiiStatus" style="font-size:12px;color:var(--text-muted)"></span>
-      </div>
-      <div style="margin-top:10px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-        <button class="row-action" id="btnProventosAcoes" onclick="atualizarProventosAcoes()">Atualizar proventos de Ações (Yahoo)</button>
-        <span id="proventosAcoesStatus" style="font-size:12px;color:var(--text-muted)"></span>
-      </div>
-      <div style="font-size:11px;color:var(--text-muted);margin-top:10px;line-height:1.55">
-        <strong>FIIs</strong>: Informe Mensal da CVM (fonte oficial). <strong>Ações BR e internacionais</strong>: histórico
-        de dividendos do Yahoo Finance — internacionais convertidos pelo câmbio da data de cada pagamento.
-        Ambos só preenchem meses que ainda não têm provento registrado (nunca sobrescrevem o que já existe) e usam a
-        quantidade atual de cotas/ações, então meses antigos com quantidade diferente podem não bater.
-        Valores são <strong>brutos</strong> na data-com: JCP tem 15% de IR retido na fonte e dividendos de ações
-        americanas têm 30% — o líquido que caiu na conta é menor.
-      </div>
 
       <div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--gridline)">
         <div style="font-size:13px;font-weight:600;margin-bottom:4px">Importar extrato oficial da B3</div>
         <div style="font-size:11.5px;color:var(--text-muted);margin-bottom:10px;line-height:1.55">
           Baixe o extrato de proventos em <strong>investidor.b3.com.br</strong> (Excel ou CSV) e solte o arquivo aqui.
-          São os valores <strong>reais e líquidos</strong> que caíram na conta — melhores que as estimativas acima.
-          Nada é gravado antes de você conferir a prévia.
+          São os valores <strong>reais e líquidos</strong> que caíram na conta. Nada é gravado antes de você conferir a
+          prévia. Pra lançar ativo por ativo (sem arquivo), use a aba <strong>Dividendos</strong> em "Ativos por classe".
         </div>
         <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
           <input type="file" id="b3File" accept=".xlsx,.xls,.csv" onchange="lerExtratoB3(event)"
@@ -1179,6 +1163,40 @@
   </div>
 </div>
 
+<!-- ===================== MODAL DE DIVIDENDOS (lançamento por ativo) ===================== -->
+<div id="divOverlay" class="modal-overlay" onclick="if(event.target===this) fecharDividendos()">
+  <div class="modal-card">
+    <div class="modal-head">
+      <div>
+        <h2 id="divTitulo">Dividendos</h2>
+        <div class="modal-sub" id="divSub"></div>
+      </div>
+      <button class="row-action" onclick="fecharDividendos()">Fechar</button>
+    </div>
+
+    <form id="divForm" onsubmit="salvarDividendo(event)">
+      <div class="ops-grid">
+        <label>Mês
+          <input type="month" id="divMes" required>
+        </label>
+        <label>Valor recebido (R$)
+          <input type="number" id="divValor" step="any" min="0.01" placeholder="0,00" required>
+        </label>
+        <div class="ops-submit">
+          <button type="submit" class="btn-primary" id="divSalvarBtn">Salvar</button>
+        </div>
+      </div>
+      <div style="font-size:11px;color:var(--text-muted);margin-top:8px;">Lançar de novo um mês já existente substitui o valor anterior.</div>
+      <div class="ops-erro" id="divErro" style="display:none;"></div>
+    </form>
+
+    <div class="ops-lista-wrap">
+      <div class="ops-lista-titulo">Histórico mês a mês</div>
+      <div id="divLista"></div>
+    </div>
+  </div>
+</div>
+
 <!-- ===================== MODAL DE LANÇAMENTOS (drill-down categoria/mês) ===================== -->
 <div id="lancOverlay" class="modal-overlay" onclick="if(event.target===this) fecharLancamentos()">
   <div class="modal-card">
@@ -1384,7 +1402,7 @@ async function loadAllData(tentativa = 1) {
   const errEl = document.getElementById('loadError');
   errEl.style.display = 'none';
   try {
-    const [posRes, rfRes, patRes, provRes, metaRes, dismissRes, opsRes, saldosRes, movRfRes, fundRes, cnpjRes] = await Promise.all([
+    const [posRes, rfRes, patRes, provRes, metaRes, dismissRes, opsRes, saldosRes, movRfRes, fundRes, cnpjRes, proventosRes] = await Promise.all([
       sb.from('v_posicao_atual').select('*'),
       sb.from('v_renda_fixa_atual').select('*'),
       sb.from('v_patrimonio_mensal').select('*').order('mes_referencia'),
@@ -1396,6 +1414,7 @@ async function loadAllData(tentativa = 1) {
       sb.from('movimentacoes_rf').select('*').order('data'),
       sb.from('fundamentos_acoes').select('*'),
       sb.from('ativos').select('id, cnpj').eq('categoria', 'FII'),
+      sb.from('proventos').select('id, ativo_id, mes_referencia, valor').order('mes_referencia'),
     ]);
     for (const r of [posRes, rfRes, patRes, provRes, metaRes, dismissRes]) if (r.error) throw r.error;
     // operacoes/saldos/movimentacoes/fundamentos são opcionais: se a tabela ainda não existir, segue sem ela em vez de travar tudo
@@ -1406,6 +1425,13 @@ async function loadAllData(tentativa = 1) {
 
     const cnpjPorAtivo = {};
     (cnpjRes.error ? [] : (cnpjRes.data || [])).forEach(a => { cnpjPorAtivo[a.id] = a.cnpj; });
+
+    // Provento por ativo/mês — a aba "Dividendos" usa isso pra montar o histórico de
+    // cada ticker (v_proventos_mensal só tem o agregado de todos os ativos por mês).
+    const proventosPorAtivo = {};
+    (proventosRes.error ? [] : (proventosRes.data || [])).forEach(p => {
+      (proventosPorAtivo[p.ativo_id] = proventosPorAtivo[p.ativo_id] || []).push({ id: p.id, mes: String(p.mes_referencia).slice(0, 7), valor: Number(p.valor) });
+    });
 
     const posicoes = posRes.data, rendaFixaRows = rfRes.data;
     const patrimonio = patRes.data, proventos = provRes.data;
@@ -1500,6 +1526,7 @@ async function loadAllData(tentativa = 1) {
         };
       }),
       dividendosMensais: proventos.map(p => ({ mes: mesLabel(p.mes_referencia), valor: p.total })),
+      proventosPorAtivo,
       meta: metaRow ? { id: metaRow.id, valor: metaRow.valor_alvo } : { id: null, valor: 2000000 },
       metaDividendos: metaDivRow ? { id: metaDivRow.id, valor: metaDivRow.valor_alvo } : { id: null, valor: 10000 },
       FUNDAMENTOS: fundRes.error ? [] : (fundRes.data || []),
@@ -1797,6 +1824,93 @@ async function excluirMovRf(movId) {
   if (error) { alert('Erro ao excluir: ' + error.message); return; }
   await loadAllData();
   if (ativoId) { rfAtivoAtual = acharRf(ativoId); renderMovRfModal(); }
+}
+
+/* ---------------- Dividendos por ativo (lançamento manual, tabela proventos) ---------------- */
+let divAtivoAtual = null;
+
+function acharAtivoDividendos(ativoId) {
+  return listaAtivosDividendos().find(a => a.id === ativoId) || null;
+}
+
+function abrirDividendos(ativoId) {
+  const a = acharAtivoDividendos(ativoId);
+  if (!a) return;
+  divAtivoAtual = a;
+  document.getElementById('divTitulo').textContent = `Dividendos — ${a.ticker}`;
+  document.getElementById('divForm').reset();
+  document.getElementById('divMes').value = new Date().toISOString().slice(0, 7);
+  document.getElementById('divErro').style.display = 'none';
+  renderDivModal();
+  document.getElementById('divOverlay').classList.add('open');
+}
+function fecharDividendos() { document.getElementById('divOverlay').classList.remove('open'); divAtivoAtual = null; }
+
+function renderDivModal() {
+  const a = divAtivoAtual;
+  if (!a) return;
+  const hist = (DATA.proventosPorAtivo[a.id] || []).slice().sort((x, y) => y.mes.localeCompare(x.mes));
+  const total12m = hist.slice(0, 12).reduce((s, m) => s + m.valor, 0);
+  document.getElementById('divSub').innerHTML = `Recebido nos últimos 12 meses: <strong>${brl(total12m)}</strong>`;
+  const lista = document.getElementById('divLista');
+  if (!hist.length) {
+    lista.innerHTML = `<div class="op-vazio">Nenhum provento lançado ainda pra ${a.ticker}.</div>`;
+    return;
+  }
+  lista.innerHTML = hist.map((m, i) => {
+    const anterior = hist[i + 1]; // hist está do mais novo pro mais antigo
+    const variacao = anterior && anterior.valor ? (m.valor - anterior.valor) / anterior.valor : null;
+    const variTxt = variacao != null
+      ? `<span class="${variacao >= 0 ? 'pl-pos' : 'pl-neg'}" style="font-size:11.5px;margin-left:8px;">${variacao >= 0 ? '+' : ''}${pct(variacao)} vs mês anterior</span>` : '';
+    return `<div class="op-row">
+      <div>${mesLabel(m.mes + '-01')}${variTxt}</div>
+      <div class="tabular" style="flex:1;text-align:right"><strong>${brl(m.valor)}</strong></div>
+      <button class="row-action" onclick="excluirDividendo('${m.id}')">Excluir</button>
+    </div>`;
+  }).join('');
+}
+
+async function salvarDividendo(event) {
+  event.preventDefault();
+  if (!divAtivoAtual) return;
+  const btn = document.getElementById('divSalvarBtn');
+  const erroEl = document.getElementById('divErro');
+  erroEl.style.display = 'none';
+  const mes = document.getElementById('divMes').value; // "YYYY-MM"
+  const valor = parseFloat(document.getElementById('divValor').value);
+  if (!mes || !(valor > 0)) {
+    erroEl.textContent = 'Preencha o mês e um valor maior que zero.';
+    erroEl.style.display = 'block';
+    return;
+  }
+  btn.disabled = true; btn.textContent = 'Salvando…';
+  try {
+    // proventos não tem user_id — RLS é via join com ativos (ativo_id -> ativos.user_id)
+    const { error } = await sb.from('proventos')
+      .upsert({ ativo_id: divAtivoAtual.id, mes_referencia: mes + '-01', valor }, { onConflict: 'ativo_id,mes_referencia' });
+    if (error) throw error;
+    const ativoId = divAtivoAtual.id;
+    await loadAllData();
+    divAtivoAtual = acharAtivoDividendos(ativoId);
+    document.getElementById('divForm').reset();
+    document.getElementById('divMes').value = new Date().toISOString().slice(0, 7);
+    renderDivModal();
+  } catch (err) {
+    console.error(err);
+    erroEl.textContent = 'Erro ao salvar: ' + (err.message || err);
+    erroEl.style.display = 'block';
+  } finally {
+    btn.disabled = false; btn.textContent = 'Salvar';
+  }
+}
+
+async function excluirDividendo(provId) {
+  if (!confirm('Excluir este lançamento de provento?')) return;
+  const ativoId = divAtivoAtual ? divAtivoAtual.id : null;
+  const { error } = await sb.from('proventos').delete().eq('id', provId);
+  if (error) { alert('Erro ao excluir: ' + error.message); return; }
+  await loadAllData();
+  if (ativoId) { divAtivoAtual = acharAtivoDividendos(ativoId); renderDivModal(); }
 }
 
 /* ---------------- Ações (escrita real no banco — sem SQL manual) ---------------- */
@@ -2527,134 +2641,6 @@ async function confirmarImportacaoB3() {
   }
 }
 
-/* ---------------- Proventos de FII automatizados (Edge Function 'proventos-fii' -> CVM) ---------------- */
-
-async function buscarProventosFiiCvm(cnpjs) {
-  const { data: { session } } = await sb.auth.getSession();
-  if (!session) throw new Error('Sessão expirada — faça login de novo.');
-  const url = `${SUPABASE_URL}/functions/v1/proventos-fii?cnpjs=${encodeURIComponent(cnpjs.join(','))}`;
-  const res = await fetch(url, { headers: { Authorization: `Bearer ${session.access_token}` } });
-  const body = await res.json();
-  if (!res.ok || body.error) throw new Error(body.error || `Erro HTTP ${res.status}`);
-  return body; // { proventos: { cnpj: [{mes, rendimentoPorCota}] }, falhas: [...] }
-}
-
-async function atualizarProventosFiiCvm() {
-  const btn = document.getElementById('btnProventosFii');
-  const statusEl = document.getElementById('proventosFiiStatus');
-  const fiisComCnpj = (DATA.FII || []).filter(a => a.cnpj);
-  if (!fiisComCnpj.length) { statusEl.textContent = 'Nenhum FII com CNPJ cadastrado.'; return; }
-
-  btn.disabled = true; btn.textContent = 'Buscando na CVM…';
-  statusEl.style.color = 'var(--text-muted)';
-  statusEl.textContent = '';
-  try {
-    const cnpjs = [...new Set(fiisComCnpj.map(a => a.cnpj))];
-    const { proventos, falhas } = await buscarProventosFiiCvm(cnpjs);
-
-    const linhasNovas = [];
-    fiisComCnpj.forEach(a => {
-      const meses = proventos[a.cnpj] || [];
-      meses.forEach(m => {
-        const valor = m.rendimentoPorCota * a.qtd;
-        if (valor > 0) linhasNovas.push({ ativo_id: a.id, mes_referencia: m.mes + '-01', valor });
-      });
-    });
-
-    if (!linhasNovas.length) {
-      statusEl.textContent = 'Nenhum dado retornado pela CVM pros seus FIIs.';
-      return;
-    }
-
-    // proventos não tem coluna user_id — RLS é via join com ativos (ativo_id -> ativos.user_id)
-    const { error } = await sb.from('proventos')
-      .upsert(linhasNovas, { onConflict: 'ativo_id,mes_referencia', ignoreDuplicates: true });
-    if (error) throw error;
-
-    statusEl.style.color = 'var(--text-muted)';
-    statusEl.textContent = `${linhasNovas.length} meses verificados${falhas.length ? ` (${falhas.length} ano(s) com falha na CVM)` : ''} — recarregando…`;
-    await loadAllData();
-  } catch (err) {
-    console.error(err);
-    statusEl.textContent = 'Erro: ' + err.message;
-    statusEl.style.color = 'var(--status-critical)';
-  } finally {
-    btn.disabled = false; btn.textContent = 'Atualizar proventos de FII (CVM)';
-  }
-}
-
-/* ---------------- Proventos de Ações automatizados (Edge Function 'proventos-acoes' -> Yahoo) ---------------- */
-
-async function buscarProventosAcoesYahoo(symbols) {
-  const { data: { session } } = await sb.auth.getSession();
-  if (!session) throw new Error('Sessão expirada — faça login de novo.');
-  const url = `${SUPABASE_URL}/functions/v1/proventos-acoes?symbols=${encodeURIComponent(symbols.join(','))}&range=2y`;
-  const res = await fetch(url, { headers: { Authorization: `Bearer ${session.access_token}` } });
-  const body = await res.json();
-  if (!res.ok || body.error) throw new Error(body.error || `Erro HTTP ${res.status}`);
-  return body; // { proventos: [{symbol, moeda, dividendos:[{data, valorOriginal, valorBRL, fx}]}], falhas }
-}
-
-async function atualizarProventosAcoes() {
-  const btn = document.getElementById('btnProventosAcoes');
-  const statusEl = document.getElementById('proventosAcoesStatus');
-  const alvos = [
-    ...(DATA.BR || []).map(a => ({ ativo: a, symbol: yahooSymbolPara('Acao BR', a.ticker) })),
-    ...(DATA.INTL || []).map(a => ({ ativo: a, symbol: yahooSymbolPara('Acao Intl', a.ticker) })),
-  ].filter(x => x.symbol && x.ativo.qtd > 0);
-  if (!alvos.length) { statusEl.textContent = 'Nenhuma ação com posição pra consultar.'; return; }
-
-  btn.disabled = true; btn.textContent = 'Buscando…';
-  statusEl.style.color = 'var(--text-muted)';
-  statusEl.textContent = '';
-  try {
-    const { proventos, falhas } = await buscarProventosAcoesYahoo(alvos.map(x => x.symbol));
-    const porSymbol = {};
-    (proventos || []).forEach(p => { porSymbol[p.symbol] = p; });
-
-    // Um mesmo mês pode ter mais de um pagamento (ITUB3/BBDC3 pagam quase todo mês,
-    // às vezes dividendo + JCP separados) — soma tudo antes de gravar, porque a
-    // tabela proventos guarda um único valor por ativo/mês.
-    const linhasNovas = [];
-    let semCambio = 0;
-    alvos.forEach(({ ativo, symbol }) => {
-      const p = porSymbol[symbol];
-      if (!p) return;
-      const porMes = {};
-      (p.dividendos || []).forEach(d => {
-        if (d.valorBRL == null) { semCambio++; return; }
-        const mes = d.data.slice(0, 7);
-        porMes[mes] = (porMes[mes] || 0) + d.valorBRL * ativo.qtd;
-      });
-      Object.entries(porMes).forEach(([mes, valor]) => {
-        if (valor > 0) linhasNovas.push({ ativo_id: ativo.id, mes_referencia: mes + '-01', valor });
-      });
-    });
-
-    if (!linhasNovas.length) {
-      statusEl.textContent = 'Nenhum dividendo retornado pelo Yahoo pras suas ações.';
-      return;
-    }
-
-    // proventos não tem coluna user_id — RLS é via join com ativos
-    const { error } = await sb.from('proventos')
-      .upsert(linhasNovas, { onConflict: 'ativo_id,mes_referencia', ignoreDuplicates: true });
-    if (error) throw error;
-
-    statusEl.style.color = 'var(--text-muted)';
-    statusEl.textContent = `${linhasNovas.length} meses verificados` +
-      (falhas && falhas.length ? ` (${falhas.length} ativo(s) sem dados)` : '') +
-      (semCambio ? ` · ${semCambio} pagamento(s) sem câmbio da data` : '') + ' — recarregando…';
-    await loadAllData();
-  } catch (err) {
-    console.error(err);
-    statusEl.textContent = 'Erro: ' + err.message;
-    statusEl.style.color = 'var(--status-critical)';
-  } finally {
-    btn.disabled = false; btn.textContent = 'Atualizar proventos de Ações (Yahoo)';
-  }
-}
-
 async function atualizarVolatilidadeRisco() {
   const btn = document.getElementById('btnRiscoVol');
   const statusEl = document.getElementById('riscoVolStatus');
@@ -3129,7 +3115,19 @@ function getClasses() {
     'Cripto (BTC)': { data: DATA.CRYPTO, hasPm: true },
     'Renda Fixa': { data: DATA.RENDA_FIXA, hasPm: false, rendaFixa: true },
     'Saldos': { data: DATA.SALDOS || [], saldos: true },
+    'Dividendos': { dividendos: true },
   };
+}
+
+// Ativos que fazem sentido pra acompanhar provento: FII, Ações BR e Ações Intl.
+// Cripto (só BTC) e Renda Fixa não pagam provento neste portfólio — RF já cresce
+// embutido no preço, calculado pela função tesouro.
+function listaAtivosDividendos() {
+  return [
+    ...(DATA.FII || []).map(a => ({ ...a, categoriaDiv: 'FII' })),
+    ...(DATA.BR || []).map(a => ({ ...a, categoriaDiv: 'Ações BR' })),
+    ...(DATA.INTL || []).map(a => ({ ...a, categoriaDiv: 'Ações Intl' })),
+  ];
 }
 let activeClass = 'FII';
 
@@ -3175,6 +3173,33 @@ function renderAssetTable() {
   document.getElementById('btnIntl').style.display = ehIntl ? '' : 'none';
   document.getElementById('btnTesouro').style.display = conf.rendaFixa ? '' : 'none';
   document.getElementById('aoVivoStatus').textContent = '';
+
+  if (conf.dividendos) {
+    const ativos = listaAtivosDividendos();
+    groupTotalEl.innerHTML = '';
+    head.innerHTML = ['Ativo', 'Categoria', 'Último mês', 'Provento', 'Variação vs mês anterior', 'DY do mês', '']
+      .map(c => `<th>${c}</th>`).join('');
+    body.innerHTML = ativos.map(a => {
+      const hist = (DATA.proventosPorAtivo[a.id] || []).slice().sort((x, y) => x.mes.localeCompare(y.mes));
+      const ultimo = hist[hist.length - 1];
+      const penultimo = hist[hist.length - 2];
+      const variacao = (ultimo && penultimo && penultimo.valor) ? (ultimo.valor - penultimo.valor) / penultimo.valor : null;
+      const cotacaoAtual = a.qtd ? valorEfetivo(a) / a.qtd : null;
+      const dy = (ultimo && cotacaoAtual && a.qtd) ? (ultimo.valor / a.qtd) / cotacaoAtual : null;
+      const variClass = variacao == null ? '' : (variacao >= 0 ? 'pl-pos' : 'pl-neg');
+      return `<tr>
+        <td class="ticker-name">${a.ticker}</td>
+        <td class="tabular">${a.categoriaDiv}</td>
+        <td class="tabular">${ultimo ? mesLabel(ultimo.mes + '-01') : '—'}</td>
+        <td class="tabular">${ultimo ? brl(ultimo.valor) : '—'}</td>
+        <td class="tabular ${variClass}">${variacao != null ? (variacao >= 0 ? '+' : '') + pct(variacao) : '—'}</td>
+        <td class="tabular">${dy != null ? pct(dy) : '—'}</td>
+        <td><button class="row-action" onclick="abrirDividendos('${a.id}')">Dividendos${hist.length ? ` (${hist.length})` : ''}</button></td>
+      </tr>`;
+    }).join('');
+    if (!ativos.length) body.innerHTML = `<tr><td colspan="7" style="text-align:center;color:var(--text-muted)">Nenhum ativo elegível.</td></tr>`;
+    return;
+  }
 
   if (conf.saldos) {
     const grupoPorCat = {};
