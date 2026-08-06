@@ -452,6 +452,33 @@
   .orc-seg button.active { background:var(--text-primary); color:var(--surface); font-weight:600; }
 
   .orc-chip { font-size: 10px; padding: 2px 7px; border-radius: 999px; background: color-mix(in srgb, var(--series-1) 14%, transparent); color: var(--series-1); margin-left: 6px; white-space:nowrap; }
+  /* ---- Matriz do ano: categoria × mês, com total no fim ---- */
+  /* A 1ª coluna fica fixa ao rolar pro lado — sem isso, com 12 meses você perde
+     de vista de qual categoria é a linha. É o que uma planilha não faz sozinha. */
+  .matriz-wrap table { font-size: 12.5px; }
+  .matriz-wrap thead th { padding: 10px 12px; }
+  .matriz-wrap tbody td { padding: 8px 12px; }
+  .matriz-cat {
+    position: sticky; left: 0; z-index: 2;
+    background: var(--surface);
+    box-shadow: 1px 0 0 var(--gridline);
+    font-weight: 500; white-space: nowrap;
+  }
+  thead .matriz-cat { z-index: 3; }
+  .matriz-total-col { font-weight: 600; border-left: 1px solid var(--baseline); }
+  .matriz-cell { cursor: pointer; position: relative; }
+  .matriz-cell:hover { outline: 2px solid var(--series-1); outline-offset: -2px; }
+  .matriz-cell.vazia { cursor: default; color: var(--text-muted); }
+  .matriz-cell.vazia:hover { outline: none; }
+  .matriz-bloco td {
+    background: color-mix(in srgb, var(--text-primary) 5%, transparent);
+    font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em;
+    font-weight: 600; color: var(--text-secondary);
+  }
+  tr.matriz-bloco .matriz-cat { background: color-mix(in srgb, var(--text-primary) 5%, var(--surface)); }
+  tr.matriz-subtotal td { font-weight: 600; border-top: 1px solid var(--baseline); }
+  tr.matriz-subtotal .matriz-cat { background: var(--surface); }
+
   .orc-andamento {
     display:flex; align-items:flex-start; gap:9px; margin-bottom:14px; padding:11px 14px;
     border:1px solid color-mix(in srgb, var(--status-warning) 40%, var(--border));
@@ -950,7 +977,7 @@
       <section class="orc-sec">
         <div class="section-head collapsible" onclick="toggleSection('orcAno')">
           <div class="section-title-wrap">
-            <h2>Total do período por categoria</h2>
+            <h2>O ano inteiro, mês a mês</h2>
             <span class="section-summary" id="orcAnoPeriodo"></span>
           </div>
           <span class="collapse-chevron" id="orcAnoChevron">▾</span>
@@ -961,9 +988,14 @@
               <button id="orcAnoCatBtn" class="active" onclick="setOrcAnoModo('categoria')">Por categoria</button>
               <button id="orcAnoGrupoBtn" onclick="setOrcAnoModo('grupo')">Por grupo</button>
             </div>
-            <span style="font-size:11.5px;color:var(--text-muted);">Soma todos os meses lançados, igual à coluna de total anual da planilha</span>
+            <span style="font-size:11.5px;color:var(--text-muted);">Quanto mais forte o fundo da célula, maior o gasto daquele mês <em>para aquela categoria</em> · clique numa célula para ver os lançamentos</span>
           </div>
-          <div class="orc-split" id="orcAnoSplit"></div>
+          <div class="table-wrap matriz-wrap">
+            <table>
+              <thead><tr id="orcMatrizHead"></tr></thead>
+              <tbody id="orcMatrizBody"></tbody>
+            </table>
+          </div>
         </div>
       </section>
 
@@ -3872,7 +3904,7 @@ function renderOrcamento() {
   renderOrcChart(serie);
   renderOrcRanking(despesas);
   renderOrcCategorias(agruparPorCategoria(doMes));
-  renderResumoAno(); // independe do mês selecionado, mas atualiza junto (ex: após novo lançamento)
+  renderMatrizAno(); // independe do mês selecionado, mas atualiza junto (ex: após novo lançamento)
   renderLucianoPanel();
   renderOrcListaMes(doMes);
 }
@@ -4103,6 +4135,7 @@ function toggleOrcChartTabela() {
 /* Barras horizontais ordenadas — categorias nominais, então uma cor só
    (o comprimento já codifica magnitude; colorir por valor gastaria o canal à toa). */
 let orcRankModo = 'grupo';
+let orcRankItensAtuais = []; // faixas na ordem desenhada — o clique acha por índice
 function setOrcRankModo(modo) {
   orcRankModo = modo;
   document.getElementById('orcRankGrupoBtn').classList.toggle('active', modo === 'grupo');
@@ -4120,7 +4153,7 @@ function renderOrcRanking(despesas) {
     const chave = orcRankModo === 'grupo' ? (l.grupo || 'Sem grupo') : l.categoria;
     map[chave] = (map[chave] || 0) + Number(l.valor);
   });
-  let itens = Object.entries(map).map(([nome, total]) => ({ nome, total })).sort((a, b) => b.total - a.total);
+  let itens = Object.entries(map).map(([nome, total]) => ({ nome, total, chaves: [nome] })).sort((a, b) => b.total - a.total);
 
   if (!itens.length) {
     wrap.innerHTML = '<div class="orc-empty">Sem despesas lançadas neste mês.</div>';
@@ -4133,8 +4166,14 @@ function renderOrcRanking(despesas) {
   const LIMITE = 10;
   if (itens.length > LIMITE) {
     const cauda = itens.slice(LIMITE - 1);
-    itens = itens.slice(0, LIMITE - 1).concat([{ nome: `Outras (${cauda.length})`, total: cauda.reduce((s, i) => s + i.total, 0), agregado: true }]);
+    itens = itens.slice(0, LIMITE - 1).concat([{
+      nome: `Outras (${cauda.length})`,
+      total: cauda.reduce((s, i) => s + i.total, 0),
+      agregado: true,
+      chaves: cauda.flatMap(i => i.chaves), // clicar na faixa agregada abre tudo que está nela
+    }]);
   }
+  orcRankItensAtuais = itens;
   nota.textContent = `${brl(totalGeral)} em despesas · ${mesLabel(orcMesAtual + '-01')}`;
 
   // Mesmo motivo do gráfico de cima: viewBox = largura real, pra o texto não encolher.
@@ -4180,14 +4219,31 @@ function renderOrcRanking(despesas) {
       : `<text x="${padL - 10}" y="${yTextoBarra}" text-anchor="end" font-size="11.5" fill="var(--text-secondary)">${escapeHtml(nomeCurto)}</text>
          <text x="${padL + larg + 8}" y="${yTextoBarra}" font-size="11.5" fill="var(--text-primary)" font-weight="500">${brl(it.total)}</text>
          <text x="${W - 2}" y="${yTextoBarra}" text-anchor="end" font-size="10.5" fill="var(--text-muted)">${pctTxt}</text>`;
+    // A faixa clicável cobre a linha inteira, não só a barra pintada — barra curta
+    // (categoria pequena) seria um alvo minúsculo de acertar.
     return `
-      ${rotulos}
-      <path d="${d}" fill="${cor}"/>
-      <title>${escapeHtml(it.nome)}: ${brl(it.total)} (${(it.total / totalGeral * 100).toFixed(1)}% das despesas do mês)</title>`;
+      <g class="orc-rank-linha" style="cursor:pointer" onclick="abrirLancamentosRanking(${i})">
+        <rect x="0" y="${topo}" width="${W}" height="${alturaLinha}" fill="transparent"/>
+        ${rotulos}
+        <path d="${d}" fill="${cor}"/>
+        <title>${escapeHtml(it.nome)}: ${brl(it.total)} (${(it.total / totalGeral * 100).toFixed(1)}% das despesas do mês) — clique para ver os lançamentos</title>
+      </g>`;
   }).join('');
 
   const descricao = `Despesas de ${mesLabel(orcMesAtual + '-01')} por ${orcRankModo}, da maior para a menor.`;
   wrap.innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${descricao}"><title>${descricao}</title>${linhas}</svg>`;
+}
+
+// Abre os lançamentos por trás de uma faixa do ranking (do mês selecionado).
+function abrirLancamentosRanking(i) {
+  const it = orcRankItensAtuais[i];
+  if (!it) return;
+  const chaveDe = l => orcRankModo === 'grupo' ? (l.grupo || 'Sem grupo') : l.categoria;
+  const itens = lancamentosDoMes(orcMesAtual)
+    .filter(l => l.tipo === 'despesa' && it.chaves.includes(chaveDe(l)));
+  const total = itens.reduce((s, l) => s + Number(l.valor), 0);
+  abrirLancamentosLista(`${it.nome} — ${mesLabel(orcMesAtual + '-01')}`,
+    `${itens.length} lançamento(s) · total ${brl(total)}`, itens);
 }
 
 // Componente genérico de dois painéis (Entradas/Saídas) — usado tanto pro mês
@@ -4246,37 +4302,113 @@ function abrirLancamentosIdx(i) {
   abrirLancamentosLista(`${c.categoria} — ${mesLabel(orcMesAtual + '-01')}`, `${c.itens.length} lançamento(s) · total ${brl(c.total)}`, c.itens);
 }
 
-// ---- Total do período por categoria/grupo (independe do mês selecionado) ----
+// ---- Matriz do ano: categoria × mês + total (independe do mês selecionado) ----
+// Mesma informação da planilha, mas com três coisas que planilha não dá: a célula
+// é sombreada pela intensidade DENTRO DA PRÓPRIA LINHA (o mês fora da curva salta
+// sem precisar ler número), as linhas vêm ordenadas pelo total, e cada célula é
+// clicável pra ver os lançamentos que a compõem.
 let orcAnoModo = 'categoria'; // 'categoria' | 'grupo'
-let orcCatsAnoAtuais = [];
+let orcMatrizLinhas = [];     // linhas na ordem exibida — o clique acha por índice
 
 function setOrcAnoModo(modo) {
   orcAnoModo = modo;
   document.getElementById('orcAnoCatBtn').classList.toggle('active', modo === 'categoria');
   document.getElementById('orcAnoGrupoBtn').classList.toggle('active', modo === 'grupo');
-  renderResumoAno();
+  renderMatrizAno();
 }
 
-function renderResumoAno() {
+function renderMatrizAno() {
   if (!DATA_ORC) return;
-  const keyFn = orcAnoModo === 'grupo' ? (l => l.grupo) : (l => l.categoria);
-  const agrupados = agruparPor(DATA_ORC.lancamentos, keyFn);
-  orcCatsAnoAtuais = renderSplitPanel('orcAnoSplit', agrupados, 'abrirLancamentosAnoIdx', ' no período');
+  const headEl = document.getElementById('orcMatrizHead');
+  const bodyEl = document.getElementById('orcMatrizBody');
+  if (!headEl || !bodyEl) return;
 
-  const meses = [...new Set(DATA_ORC.lancamentos.map(l => l.data.slice(0, 7)))].sort();
+  const keyFn = orcAnoModo === 'grupo' ? (l => l.grupo || 'Sem grupo') : (l => l.categoria);
+  const lanc = DATA_ORC.lancamentos;
+  const meses = [...new Set(lanc.map(l => l.data.slice(0, 7)))].sort();
+
   const periodoEl = document.getElementById('orcAnoPeriodo');
   if (periodoEl) {
     periodoEl.textContent = meses.length
       ? `${mesLabel(meses[0] + '-01')} a ${mesLabel(meses[meses.length - 1] + '-01')} (${meses.length} ${meses.length === 1 ? 'mês' : 'meses'})`
       : 'Sem lançamentos ainda';
   }
+  if (!meses.length) {
+    headEl.innerHTML = '';
+    bodyEl.innerHTML = '<tr><td class="orc-empty">Nenhum lançamento ainda.</td></tr>';
+    orcMatrizLinhas = [];
+    return;
+  }
+
+  headEl.innerHTML = `<th class="matriz-cat">${orcAnoModo === 'grupo' ? 'Grupo' : 'Categoria'}</th>` +
+    meses.map(m => `<th>${mesLabel(m + '-01')}</th>`).join('') +
+    `<th class="matriz-total-col">Total</th>`;
+
+  orcMatrizLinhas = [];
+  const blocos = [
+    { tipo: 'receita', titulo: 'Entradas', cor: ORC_COR_RECEITA },
+    { tipo: 'despesa', titulo: 'Saídas', cor: ORC_COR_DESPESA },
+  ];
+
+  bodyEl.innerHTML = blocos.map(bloco => {
+    const doTipo = lanc.filter(l => l.tipo === bloco.tipo);
+    if (!doTipo.length) return '';
+
+    const chaves = [...new Set(doTipo.map(keyFn))];
+    const linhas = chaves.map(chave => {
+      const itens = doTipo.filter(l => keyFn(l) === chave);
+      const porMes = {};
+      itens.forEach(l => {
+        const m = l.data.slice(0, 7);
+        porMes[m] = (porMes[m] || 0) + Number(l.valor);
+      });
+      return { chave, porMes, itens, total: itens.reduce((s, l) => s + Number(l.valor), 0), tipo: bloco.tipo };
+    }).sort((a, b) => b.total - a.total);
+
+    const totalBloco = linhas.reduce((s, l) => s + l.total, 0);
+    const totalPorMes = {};
+    meses.forEach(m => { totalPorMes[m] = linhas.reduce((s, l) => s + (l.porMes[m] || 0), 0); });
+
+    const trs = linhas.map(linha => {
+      const idx = orcMatrizLinhas.push(linha) - 1;
+      // Escala do sombreamento é por LINHA: destaca o mês atípico daquela categoria,
+      // em vez de só repintar de escuro quem gasta muito (isso o total já diz).
+      const maxLinha = Math.max(...meses.map(m => linha.porMes[m] || 0), 0);
+      const celulas = meses.map(m => {
+        const v = linha.porMes[m];
+        if (v == null) return `<td class="tabular matriz-cell vazia">—</td>`;
+        const intensidade = maxLinha > 0 ? (v / maxLinha) : 0;
+        const fundo = `background:color-mix(in srgb, ${bloco.cor} ${(intensidade * 26).toFixed(0)}%, transparent)`;
+        return `<td class="tabular matriz-cell" style="${fundo}" onclick="abrirLancamentosMatriz(${idx}, '${m}')"
+                    title="${escapeHtml(linha.chave)} · ${mesLabel(m + '-01')}: ${brl(v)}">${brl(v)}</td>`;
+      }).join('');
+      return `<tr>
+        <td class="matriz-cat"><button type="button" class="link-btn" onclick="abrirLancamentosMatriz(${idx})">${escapeHtml(linha.chave)}</button></td>
+        ${celulas}
+        <td class="tabular matriz-total-col">${brl(linha.total)}</td>
+      </tr>`;
+    }).join('');
+
+    return `
+      <tr class="matriz-bloco"><td class="matriz-cat">${bloco.titulo}</td>${meses.map(() => '<td></td>').join('')}<td></td></tr>
+      ${trs}
+      <tr class="matriz-subtotal">
+        <td class="matriz-cat">Total de ${bloco.titulo.toLowerCase()}</td>
+        ${meses.map(m => `<td class="tabular">${brl(totalPorMes[m])}</td>`).join('')}
+        <td class="tabular matriz-total-col">${brl(totalBloco)}</td>
+      </tr>`;
+  }).join('');
 }
 
-function abrirLancamentosAnoIdx(i) {
-  const c = orcCatsAnoAtuais[i];
-  if (!c) return;
-  const rotulo = orcAnoModo === 'grupo' ? `Grupo: ${c.categoria}` : c.categoria;
-  abrirLancamentosLista(`${rotulo} — todo o período`, `${c.itens.length} lançamento(s) · total ${brl(c.total)}`, c.itens);
+// Sem mês = a linha inteira (todo o período). Com mês = só aquela célula.
+function abrirLancamentosMatriz(idx, mes) {
+  const linha = orcMatrizLinhas[idx];
+  if (!linha) return;
+  const rotulo = orcAnoModo === 'grupo' ? `Grupo: ${linha.chave}` : linha.chave;
+  const itens = mes ? linha.itens.filter(l => l.data.slice(0, 7) === mes) : linha.itens;
+  const total = itens.reduce((s, l) => s + Number(l.valor), 0);
+  const quando = mes ? mesLabel(mes + '-01') : 'todo o período';
+  abrirLancamentosLista(`${rotulo} — ${quando}`, `${itens.length} lançamento(s) · total ${brl(total)}`, itens);
 }
 
 function abrirLancamentosLista(titulo, sub, itens) {
