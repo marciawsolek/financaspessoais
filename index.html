@@ -733,6 +733,10 @@
         <button class="row-action" onclick="atualizarCotacoesAoVivo()" id="btnAoVivo">Atualizar cotações ao vivo</button>
         <button class="row-action" onclick="atualizarInternacionaisAoVivo()" id="btnIntl" style="display:none;">Atualizar cotações ao vivo</button>
         <button class="row-action" onclick="atualizarTesouroAoVivo()" id="btnTesouro" style="display:none;">Atualizar valores do Tesouro</button>
+        <label id="divAnoWrap" style="display:none;align-items:center;gap:7px;font-size:12px;color:var(--text-secondary);">
+          Ano
+          <select id="divAnoSelect" onchange="setDivAno(this.value)" style="padding:5px 9px;font-size:12.5px;"></select>
+        </label>
         <span id="aoVivoStatus" style="font-size:12px;color:var(--text-muted)"></span>
       </div>
       <div class="table-wrap">
@@ -3154,6 +3158,25 @@ function getClasses() {
 // Ativos que fazem sentido pra acompanhar provento: FII, Ações BR e Ações Intl.
 // Cripto (só BTC) e Renda Fixa não pagam provento neste portfólio — RF já cresce
 // embutido no preço, calculado pela função tesouro.
+// Ano mostrado na aba Dividendos. O histórico importado da planilha começa em
+// jan/2025, mas o acompanhamento do dia a dia é do ano corrente — abrir com 18+
+// colunas de uma vez atrapalha mais do que ajuda. O histórico continua no banco
+// e é acessível pelo seletor ("Todos") e pelo modal de cada ativo.
+let divAnoSelecionado = String(new Date().getFullYear());
+
+function setDivAno(ano) { divAnoSelecionado = ano; renderAssetTable(); }
+
+function renderDivAnoSelect(ativos) {
+  const sel = document.getElementById('divAnoSelect');
+  if (!sel) return;
+  const anos = [...new Set(ativos.flatMap(a => (DATA.proventosPorAtivo[a.id] || []).map(p => p.mes.slice(0, 4))))].sort().reverse();
+  if (!anos.length) anos.push(String(new Date().getFullYear()));
+  // Se o ano corrente ainda não tem provento lançado, cai pro mais recente que tem.
+  if (divAnoSelecionado !== 'todos' && !anos.includes(divAnoSelecionado)) divAnoSelecionado = anos[0];
+  sel.innerHTML = anos.map(a => `<option value="${a}">${a}</option>`).join('') + `<option value="todos">Todos</option>`;
+  sel.value = divAnoSelecionado;
+}
+
 function listaAtivosDividendos() {
   return [
     ...(DATA.FII || []).map(a => ({ ...a, categoriaDiv: 'FII' })),
@@ -3204,13 +3227,16 @@ function renderAssetTable() {
   document.getElementById('btnAoVivo').style.display = ehBrasil ? '' : 'none';
   document.getElementById('btnIntl').style.display = ehIntl ? '' : 'none';
   document.getElementById('btnTesouro').style.display = conf.rendaFixa ? '' : 'none';
+  document.getElementById('divAnoWrap').style.display = conf.dividendos ? 'flex' : 'none';
   document.getElementById('aoVivoStatus').textContent = '';
 
   if (conf.dividendos) {
     const ativos = listaAtivosDividendos();
-    // União de todos os meses com provento lançado em QUALQUER ativo — cada mês
-    // vira uma coluna, igual à planilha (ticker × mês, total no final).
-    const todosMeses = [...new Set(ativos.flatMap(a => (DATA.proventosPorAtivo[a.id] || []).map(p => p.mes)))].sort();
+    renderDivAnoSelect(ativos);
+    // União de todos os meses com provento lançado em QUALQUER ativo, dentro do ano
+    // selecionado — cada mês vira uma coluna, igual à planilha (ticker × mês + total).
+    const noAno = p => divAnoSelecionado === 'todos' || p.mes.slice(0, 4) === divAnoSelecionado;
+    const todosMeses = [...new Set(ativos.flatMap(a => (DATA.proventosPorAtivo[a.id] || []).filter(noAno).map(p => p.mes)))].sort();
 
     head.innerHTML = ['Ativo', 'Categoria', ...todosMeses.map(m => mesLabel(m + '-01')), 'Total', 'DY do mês', '']
       .map(c => `<th>${c}</th>`).join('');
@@ -3219,7 +3245,7 @@ function renderAssetTable() {
     let totalGeral = 0;
 
     const linhas = ativos.map(a => {
-      const hist = DATA.proventosPorAtivo[a.id] || [];
+      const hist = (DATA.proventosPorAtivo[a.id] || []).filter(noAno);
       const porMes = {};
       hist.forEach(p => { porMes[p.mes] = p.valor; totalPorMes[p.mes] += p.valor; });
       const totalAtivo = hist.reduce((s, p) => s + p.valor, 0);
@@ -3248,9 +3274,13 @@ function renderAssetTable() {
       <td></td><td></td>
     </tr>`;
 
-    groupTotalEl.innerHTML = `Total recebido no período: <strong>${brl(totalGeral)}</strong>`;
-    body.innerHTML = (ativos.length ? linhas + totalRow
-      : `<tr><td colspan="${4 + todosMeses.length}" style="text-align:center;color:var(--text-muted)">Nenhum ativo elegível.</td></tr>`);
+    const rotuloPeriodo = divAnoSelecionado === 'todos' ? 'em todo o histórico' : `em ${divAnoSelecionado}`;
+    groupTotalEl.innerHTML = `Total recebido ${rotuloPeriodo}: <strong>${brl(totalGeral)}</strong>`;
+    body.innerHTML = (!ativos.length
+      ? `<tr><td colspan="5" style="text-align:center;color:var(--text-muted)">Nenhum ativo elegível.</td></tr>`
+      : (!todosMeses.length
+        ? `<tr><td colspan="5" style="text-align:center;color:var(--text-muted)">Nenhum provento lançado ${rotuloPeriodo}.</td></tr>`
+        : linhas + totalRow));
     return;
   }
 
