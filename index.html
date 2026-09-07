@@ -4800,7 +4800,9 @@ function pdfCorteColunas(linhas, largura) {
   let maiorVao = 0, corte = largura / 2;
   for (let i = 1; i < xs.length; i++) {
     const vao = xs[i] - xs[i - 1];
-    if (vao > maiorVao) { maiorVao = vao; corte = (xs[i] + xs[i - 1]) / 2; }
+    // o corte e o INICIO da coluna da direita, nao o meio do vao: os valores da
+    // coluna esquerda ficam bem a direita dentro dela e cairiam do lado errado.
+    if (vao > maiorVao) { maiorVao = vao; corte = xs[i] - 2; }
   }
   return maiorVao > 40 ? corte : largura / 2;
 }
@@ -4822,8 +4824,8 @@ function pdfLerTransacao(pedacos) {
 }
 
 const MARCADORES = {
-  futuras: 'compras parceladas',
-  internacional: 'lançamentos internacionais',
+  futuras: 'comprasparceladas',
+  internacional: 'lançamentosinternacionais',
 };
 
 async function pdfLerFatura(arrayBuffer) {
@@ -4846,22 +4848,24 @@ async function pdfLerFatura(arrayBuffer) {
         const pedacos = linha.pedacos.filter(p => lado === 'esq' ? p.x < corte : p.x >= corte);
         if (!pedacos.length) return;
         const texto = pedacos.map(p => p.texto).join(' ');
-        const minusculo = texto.toLowerCase();
+        // o pdf.js pode quebrar "Lançamentos" em "Lan" + "çamentos", entao
+        // comparo sem espaco nenhum pra o marcador nao passar batido.
+        const chapado = texto.toLowerCase().replace(/\s+/g, '');
 
-        if (minusculo.includes(MARCADORES.futuras)) { secao[lado] = 'futura'; return; }
-        if (minusculo.includes(MARCADORES.internacional)) { secao[lado] = 'internacional'; return; }
+        if (chapado.includes(MARCADORES.futuras)) { secao[lado] = 'futura'; return; }
+        if (chapado.includes(MARCADORES.internacional)) { secao[lado] = 'internacional'; return; }
 
-        if (minusculo.includes('total dos lançamentos atuais')) {
+        if (chapado.includes('totaldoslançamentosatuais')) {
           const v = parseValorFlexivel(pedacos[pedacos.length - 1].texto);
           if (v != null) totalDeclarado = v;
           return;
         }
-        if (minusculo.includes('repasse de iof')) {
+        if (chapado.includes('repassedeiof')) {
           const v = parseValorFlexivel(pedacos[pedacos.length - 1].texto);
           if (v != null) iof += v;
           return;
         }
-        if (minusculo.includes('vencimento')) {
+        if (chapado.includes('vencimento')) {
           const m = texto.match(/(\d{2})\/(\d{2})\/(\d{4})/);
           if (m) vencimento = `${m[3]}-${m[2]}-${m[1]}`;
           return;
