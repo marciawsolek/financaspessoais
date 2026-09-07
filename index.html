@@ -454,6 +454,32 @@
   .orc-seg button.active { background:var(--text-primary); color:var(--surface); font-weight:600; }
 
   .orc-chip { font-size: 10px; padding: 2px 7px; border-radius: 999px; background: color-mix(in srgb, var(--series-1) 14%, transparent); color: var(--series-1); margin-left: 6px; white-space:nowrap; }
+  /* ---- Conferência de fatura ---- */
+  .conf-aviso { padding:12px 14px; border-radius:11px; font-size:12.5px; line-height:1.55; border:1px solid; }
+  .conf-aviso.ok { border-color: color-mix(in srgb, var(--good) 45%, var(--border)); background: color-mix(in srgb, var(--good) 8%, transparent); }
+  .conf-aviso.erro { border-color: color-mix(in srgb, var(--status-critical) 45%, var(--border)); background: color-mix(in srgb, var(--status-critical) 8%, transparent); }
+  .conf-nota { color: var(--text-muted); font-size: 11.5px; }
+  .conf-barra { display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; margin:14px 0 10px; font-size:12.5px; }
+  .conf-lote { display:flex; align-items:center; gap:12px; flex-wrap:wrap; padding:10px 12px; margin-bottom:10px;
+               background: color-mix(in srgb, var(--text-primary) 4%, transparent); border-radius:10px; font-size:12px; }
+  .conf-lote label { display:flex; align-items:center; gap:6px; }
+  .conf-lote select { font-size:12px; padding:5px 8px; }
+  .conf-linha { border:1px solid var(--border); border-radius:11px; padding:10px 12px; margin-bottom:8px; background: var(--surface); }
+  .conf-linha.pendente { opacity:0.62; border-style:dashed; }
+  .conf-linha.duplicata { border-color: color-mix(in srgb, var(--status-warning) 55%, var(--border)); }
+  .conf-linha-topo { display:flex; align-items:center; gap:10px; }
+  .conf-data { font-size:12px; color:var(--text-muted); flex:none; }
+  .conf-desc { flex:1; font-size:13px; font-weight:500; min-width:0; }
+  .conf-valor { font-size:13.5px; font-weight:600; flex:none; }
+  .conf-linha-baixo { display:flex; align-items:center; gap:10px; margin-top:8px; flex-wrap:wrap; }
+  .conf-seg button { font-size:11.5px; padding:4px 10px; }
+  .conf-select { font-size:12px; padding:5px 8px; max-width:230px; }
+  .conf-tag { font-size:10px; margin-left:7px; padding:2px 7px; border-radius:999px;
+              background: color-mix(in srgb, var(--series-1) 14%, transparent); color: var(--series-1); white-space:nowrap; }
+  .conf-tag.alerta { background: color-mix(in srgb, var(--status-warning) 20%, transparent); color: var(--status-warning); }
+  .conf-palpite { font-size:11px; color:var(--text-muted); }
+  .row-action.conf-pendente-on { border-color: var(--text-primary); color: var(--text-primary); font-weight:600; }
+
   /* ---- Matriz do ano: categoria × mês, com total no fim ---- */
   /* A 1ª coluna fica fixa ao rolar pro lado — sem isso, com 12 meses você perde
      de vista de qual categoria é a linha. É o que uma planilha não faz sozinha. */
@@ -1044,6 +1070,29 @@
         </div>
       </section>
 
+
+      <!-- Conferência de fatura: nada entra no orçamento sem ela revisar linha a linha -->
+      <section class="orc-sec">
+        <div class="section-head collapsible" onclick="toggleSection('conf')">
+          <div class="section-title-wrap">
+            <h2>Conferir fatura do cartão</h2>
+            <span class="section-summary">Suba o PDF, classifique linha a linha, depois grave</span>
+          </div>
+          <span class="collapse-chevron" id="confChevron">▾</span>
+        </div>
+        <div class="collapsible-body" id="confBody" style="display:none">
+          <div style="font-size:12px;color:var(--text-muted);margin-bottom:12px;line-height:1.55">
+            Leio o PDF e confiro contra o total que a própria fatura declara — se não fechar, não deixo gravar.
+            Parcelas de faturas futuras ficam de fora automaticamente. Nada entra no orçamento até você clicar em gravar.
+          </div>
+          <input type="file" id="confFile" accept=".pdf" onchange="lerFaturaPdf(event)"
+                 style="font-size:12.5px;color:var(--text-secondary);max-width:100%">
+          <div id="confStatus" style="font-size:12.5px;margin-top:8px;"></div>
+          <div id="confResumo" style="margin-top:12px;"></div>
+          <div id="confAcoes"></div>
+          <div id="confLista"></div>
+        </div>
+      </section>
       <!-- Formulário de novo lançamento -->
       <section class="orc-sec">
         <div class="orc-sec-head">
@@ -4842,6 +4891,7 @@ async function pdfLerFatura(arrayBuffer) {
 
     // Cada coluna tem a sua própria seção corrente, e ela muda no meio da página.
     const secao = { esq: 'atual', dir: 'atual' };
+    const ultimaDoLado = { esq: null, dir: null };
 
     linhas.forEach(linha => {
       ['esq', 'dir'].forEach(lado => {
@@ -4872,7 +4922,20 @@ async function pdfLerFatura(arrayBuffer) {
         }
 
         const tx = pdfLerTransacao(pedacos);
-        if (tx) transacoes.push({ ...tx, secao: secao[lado], pagina: p });
+        if (tx) {
+          transacoes.push({ ...tx, secao: secao[lado], pagina: p });
+          ultimaDoLado[lado] = transacoes[transacoes.length - 1];
+          return;
+        }
+
+        // Linha seguinte a uma transacao traz a categoria que o proprio
+        // Itau atribuiu ("SAUDE .CURITIBA") — serve de primeiro palpite
+        // mesmo pra compra que ela nunca classificou antes.
+        const mCat = texto.match(/^([A-ZÀ-Ú][A-ZÀ-Ú\/ ]{2,})\s*\.\s*\S/);
+        if (mCat && ultimaDoLado[lado]) {
+          ultimaDoLado[lado].categoriaItau = mCat[1].trim();
+          ultimaDoLado[lado] = null;
+        }
       });
     });
   }
@@ -4896,6 +4959,320 @@ function pdfDataDoLancamento(tx, vencimento) {
   if (diasAtras > 60) return { data: vencimento.slice(0, 8) + '01', parcelaAntiga: true,
                                dataOriginal: dataCompra.toISOString().slice(0, 10) };
   return { data: dataCompra.toISOString().slice(0, 10), parcelaAntiga: false };
+}
+
+/* ---------------- Taxonomia: grupo -> subcategorias ---------------- */
+// Veio da própria planilha dela (linhas-mãe e suas filhas), com dois ajustes
+// que ela confirmou: "ESTACIONAMEMNTO" estava com erro de digitação, e
+// "DOAÇÕES" aparecia duas vezes. Escolher a subcategoria já define o grupo.
+const TAXONOMIA = {
+  'Casa':               ['Vivo', 'Itens casa', 'Luz', 'Água', 'Gás', 'IPTU', 'Netflix', 'YouTube', 'TV/Internet', 'iTunes', 'Limpeza casa', 'Jardim', 'Manutenção casa', 'Itens para casa'],
+  'Alimentação':        ['Alimentação', 'Beb alcoólica', 'Mercado'],
+  'Saúde':              ['Eco Salva+Luto', 'Espiritualidade', 'Médicos', 'Terapias', 'Medicamentos', 'Farmácia/Higiene', 'Wellhub'],
+  'Beleza/Autocuidado': ['Massagem/Osteopata', 'Estética', 'Atividade física', 'Salão de beleza', 'Perfumaria'],
+  'Vestuário':          ['Roupas', 'Lingerie/Praia', 'Calçados', 'SAP/Costureira', 'Acessórios'],
+  'Lazer':              ['Eventos/Pubs', 'Logística', 'Hospedagem', 'HOG', 'Ingressos'],
+  'Educação':           ['Livros', 'Cursos', 'Palestras', 'App/Equip'],
+  'Transporte':         ['Pedágio', 'Uber', 'Estacionamento', 'Combustível', 'Harley', 'Lavagem', 'Manutenção', 'IPVA/Licenciamento', 'Seguro'],
+  'Pet':                ['Bella', 'Bella banho', 'Bella PetLove', 'Bella ração', 'Bella saúde'],
+  'Presentes/Doações':  ['Presentes', 'Doações', 'Terreiro', 'Vendas sinaleiro'],
+  'Pais':               ['Netflix pais', 'Vivo pais', 'Eco Salva+Unil', 'Amil Marcia'],
+  'Outros':             ['Advogado', 'Unilutus', 'Taxas', 'IRPF/Taxas invest', 'Song', 'Seguro Song', 'Outros'],
+};
+
+function grupoDaSubcategoria(sub) {
+  for (const [grupo, subs] of Object.entries(TAXONOMIA)) if (subs.includes(sub)) return grupo;
+  return null;
+}
+
+// A própria fatura já classifica cada compra — vira o primeiro palpite quando
+// não há histórico daquele estabelecimento.
+const ITAU_PARA_GRUPO = {
+  'ALIMENTAÇÃO': 'Alimentação', 'VEÍCULOS': 'Transporte', 'MORADIA': 'Casa',
+  'SAÚDE': 'Saúde', 'VESTUÁRIO': 'Vestuário', 'HOBBY': 'Lazer', 'DIVERSOS': 'Outros',
+};
+
+/* ---------------- Conferência de fatura ---------------- */
+let confLinhas = [];   // o que foi lido do PDF, já com a classificação em andamento
+let confMeta = null;   // total declarado, vencimento, conferência
+
+// Reduz "Uber UBER *TRIP HELP.U" e "UBER *TRIP SAO PAULO" a uma raiz comparável,
+// pra reconhecer o mesmo estabelecimento entre faturas.
+function raizEstabelecimento(desc) {
+  return String(desc || '').toUpperCase()
+    .replace(/[*#].*$/, '')                       // corta o que vem depois de * ou #
+    .replace(/\d{2}\/\d{2}$/, '')                 // parcela no fim ("02/04")
+    .replace(/[^A-ZÀ-Ú ]/g, ' ')
+    .split(/\s+/).filter(p => p.length > 2).slice(0, 2).join(' ').trim();
+}
+
+// Palpite de classificação: primeiro o histórico dela (o que ela mesma decidiu
+// em faturas anteriores), depois a categoria que o Itaú atribuiu.
+function palpiteClassificacao(tx) {
+  const raiz = raizEstabelecimento(tx.descricao);
+  if (raiz && DATA_ORC && DATA_ORC.lancamentos) {
+    const parecidos = DATA_ORC.lancamentos.filter(l =>
+      l.tipo === 'despesa' && raizEstabelecimento(l.descricao || l.categoria) === raiz);
+    if (parecidos.length) {
+      const ultimo = parecidos[parecidos.length - 1];
+      return { categoria: ultimo.categoria, grupo: ultimo.grupo,
+               alocacao: ultimo.alocacao || (ultimo.compartilhado_com_luciano ? 'casa' : 'pessoal'),
+               origem: `como das últimas ${parecidos.length}x` };
+    }
+  }
+  const grupo = ITAU_PARA_GRUPO[(tx.categoriaItau || '').toUpperCase()];
+  if (grupo) return { categoria: null, grupo, alocacao: 'pessoal', origem: `sugestão do Itaú (${tx.categoriaItau})` };
+  return { categoria: null, grupo: null, alocacao: 'pessoal', origem: null };
+}
+
+// Já existe algo com a mesma data e o mesmo valor? É o erro mais caro possível
+// aqui — dobra o gasto sem ninguém perceber.
+function possivelDuplicata(data, valor) {
+  if (!DATA_ORC || !DATA_ORC.lancamentos) return false;
+  return DATA_ORC.lancamentos.some(l =>
+    l.data === data && Math.abs(Number(l.valor) - valor) < 0.01);
+}
+
+async function lerFaturaPdf(event) {
+  const arquivo = event.target.files && event.target.files[0];
+  const statusEl = document.getElementById('confStatus');
+  if (!arquivo) return;
+  confLinhas = []; confMeta = null;
+  statusEl.style.color = 'var(--text-muted)';
+  statusEl.textContent = 'Lendo a fatura…';
+  document.getElementById('confResumo').innerHTML = '';
+  document.getElementById('confLista').innerHTML = '';
+  document.getElementById('confAcoes').innerHTML = '';
+
+  try {
+    if (!window.pdfjsLib) throw new Error('O leitor de PDF não carregou. Recarregue a página.');
+    const buffer = await arquivo.arrayBuffer();
+    const r = await pdfLerFatura(buffer);
+
+    const atuais = r.transacoes.filter(t => t.secao === 'atual' || t.secao === 'internacional');
+    const somaLida = atuais.reduce((s, t) => s + t.valor, 0) + r.iof;
+    const diferenca = r.totalDeclarado == null ? null : somaLida - r.totalDeclarado;
+
+    confMeta = {
+      vencimento: r.vencimento,
+      totalDeclarado: r.totalDeclarado,
+      iof: r.iof,
+      somaLida,
+      diferenca,
+      futuras: r.transacoes.filter(t => t.secao === 'futura'),
+      confere: diferenca != null && Math.abs(diferenca) < 0.01,
+    };
+
+    confLinhas = atuais.map((tx, i) => {
+      const d = pdfDataDoLancamento(tx, r.vencimento);
+      const palpite = palpiteClassificacao(tx);
+      return {
+        i, ...tx,
+        data: d ? d.data : r.vencimento,
+        dataOriginal: d && d.parcelaAntiga ? d.dataOriginal : null,
+        categoria: palpite.categoria,
+        grupo: palpite.grupo,
+        alocacao: palpite.alocacao,
+        origemPalpite: palpite.origem,
+        pendente: false,
+        marcada: false,
+        duplicata: possivelDuplicata(d ? d.data : r.vencimento, tx.valor),
+      };
+    });
+
+    statusEl.textContent = '';
+    renderConferencia();
+  } catch (err) {
+    console.error(err);
+    statusEl.style.color = 'var(--status-critical)';
+    statusEl.textContent = 'Não consegui ler: ' + err.message;
+  }
+}
+
+function renderConferencia() {
+  const resumoEl = document.getElementById('confResumo');
+  const listaEl = document.getElementById('confLista');
+  const acoesEl = document.getElementById('confAcoes');
+  if (!confMeta) { resumoEl.innerHTML = ''; listaEl.innerHTML = ''; acoesEl.innerHTML = ''; return; }
+
+  // A fatura declara o próprio total, então dá pra PROVAR que a leitura está
+  // completa antes de deixar gravar. Sem isso, erro de leitura entraria calado.
+  const ok = confMeta.confere;
+  const futurasTotal = confMeta.futuras.reduce((s, t) => s + t.valor, 0);
+  resumoEl.innerHTML =
+    '<div class="conf-aviso ' + (ok ? 'ok' : 'erro') + '">' +
+      '<strong>' + (ok ? 'Confere' : 'Nao fechou') + '</strong> · ' +
+      'li ' + brl(confMeta.somaLida) +
+      (confMeta.totalDeclarado != null
+        ? ' e a fatura declara ' + brl(confMeta.totalDeclarado)
+        : ' mas nao achei o total declarado na fatura') +
+      (ok ? '.' : ' — diferenca de ' + brl(Math.abs(confMeta.diferenca || 0)) +
+        '.<br>Nao vou gravar nada com a leitura incompleta, pra nao entrar valor errado no seu controle.') +
+      (confMeta.futuras.length
+        ? '<br><span class="conf-nota">' + confMeta.futuras.length +
+          ' parcela(s) de faturas futuras (' + brl(futurasTotal) + ') ficaram de fora, como deve ser.</span>'
+        : '') +
+      (confMeta.iof
+        ? '<br><span class="conf-nota">IOF de ' + brl(confMeta.iof) + ' entra como lancamento a parte.</span>'
+        : '') +
+    '</div>';
+
+  const marcadas = confLinhas.filter(l => l.marcada).length;
+  const semClass = confLinhas.filter(l => !l.pendente && !l.grupo).length;
+
+  acoesEl.innerHTML =
+    '<div class="conf-barra">' +
+      '<div>' + confLinhas.length + ' lancamentos' +
+        (semClass ? ' · <strong>' + semClass + ' sem classificacao</strong>' : ' · todos classificados') +
+      '</div>' +
+      '<button class="btn-primary" style="width:auto;padding:9px 18px;"' + (ok ? '' : ' disabled') +
+        ' onclick="salvarConferencia()">Gravar no orcamento</button>' +
+    '</div>';
+
+  const opcoes = (sel) => Object.entries(TAXONOMIA).map(([grupo, subs]) =>
+    '<optgroup label="' + grupo + '">' +
+      '<option value="' + grupo + '|"' + (sel === grupo + '|' ? ' selected' : '') + '>' + grupo + ' (geral)</option>' +
+      subs.map(s => '<option value="' + grupo + '|' + s + '"' +
+        (sel === grupo + '|' + s ? ' selected' : '') + '>' + s + '</option>').join('') +
+    '</optgroup>').join('');
+
+  listaEl.innerHTML =
+    '<div class="conf-lote">' +
+      '<label><input type="checkbox" onchange="confMarcarTodas(this.checked)"> marcar todas</label>' +
+      '<span class="conf-nota">' + marcadas + ' marcada(s)</span>' +
+      '<div class="orc-seg">' +
+        '<button onclick="confAplicarLote(\'alocacao\',\'pessoal\')">Pessoal</button>' +
+        '<button onclick="confAplicarLote(\'alocacao\',\'casa\')">Casa</button>' +
+        '<button onclick="confAplicarLote(\'alocacao\',\'empresa\')">Empresa</button>' +
+      '</div>' +
+      '<select onchange="confAplicarLote(\'categoria\', this.value); this.selectedIndex=0;">' +
+        '<option value="">aplicar categoria...</option>' + opcoes(null) +
+      '</select>' +
+    '</div>' +
+    confLinhas.map(l => {
+      const sel = l.grupo ? l.grupo + '|' + (l.categoria && l.categoria !== l.grupo ? l.categoria : '') : null;
+      return '<div class="conf-linha' + (l.pendente ? ' pendente' : '') + (l.duplicata ? ' duplicata' : '') + '">' +
+        '<div class="conf-linha-topo">' +
+          '<input type="checkbox"' + (l.marcada ? ' checked' : '') +
+            ' onchange="confMarcar(' + l.i + ', this.checked)">' +
+          '<span class="conf-data tabular">' + fmtDate(l.data) + '</span>' +
+          '<span class="conf-desc">' + escapeHtml(l.descricao) +
+            (l.dataOriginal ? '<span class="conf-tag">parcela · compra em ' + fmtDate(l.dataOriginal) + '</span>' : '') +
+            (l.duplicata ? '<span class="conf-tag alerta">ja existe lancamento igual</span>' : '') +
+          '</span>' +
+          '<span class="conf-valor tabular">' + brl(l.valor) + '</span>' +
+        '</div>' +
+        '<div class="conf-linha-baixo">' +
+          '<div class="orc-seg conf-seg">' +
+            '<button class="' + (l.alocacao === 'pessoal' && !l.pendente ? 'active' : '') + '" onclick="confSetAlocacao(' + l.i + ',\'pessoal\')">Pessoal</button>' +
+            '<button class="' + (l.alocacao === 'casa' && !l.pendente ? 'active' : '') + '" onclick="confSetAlocacao(' + l.i + ',\'casa\')">Casa</button>' +
+            '<button class="' + (l.alocacao === 'empresa' && !l.pendente ? 'active' : '') + '" onclick="confSetAlocacao(' + l.i + ',\'empresa\')">Empresa</button>' +
+          '</div>' +
+          '<select class="conf-select" onchange="confSetCategoria(' + l.i + ', this.value)">' +
+            '<option value="">— escolher —</option>' + opcoes(sel) +
+          '</select>' +
+          '<button class="row-action' + (l.pendente ? ' conf-pendente-on' : '') + '" onclick="confSetPendente(' + l.i + ')">' +
+            (l.pendente ? 'deixado pra depois' : 'nao sei ainda') +
+          '</button>' +
+          (l.origemPalpite && !l.pendente ? '<span class="conf-palpite">' + escapeHtml(l.origemPalpite) + '</span>' : '') +
+        '</div>' +
+      '</div>';
+    }).join('');
+}
+
+function confMarcar(i, v) { const l = confLinhas.find(x => x.i === i); if (l) { l.marcada = v; renderConferencia(); } }
+function confMarcarTodas(v) { confLinhas.forEach(l => l.marcada = v); renderConferencia(); }
+
+function confSetAlocacao(i, valor) {
+  const l = confLinhas.find(x => x.i === i);
+  if (!l) return;
+  l.alocacao = valor; l.pendente = false;
+  renderConferencia();
+}
+
+function confSetCategoria(i, valor) {
+  const l = confLinhas.find(x => x.i === i);
+  if (!l || !valor) return;
+  const partes = valor.split('|');
+  l.grupo = partes[0];
+  l.categoria = partes[1] || partes[0]; // "(geral)" grava o proprio grupo
+  l.pendente = false;
+  renderConferencia();
+}
+
+function confSetPendente(i) {
+  const l = confLinhas.find(x => x.i === i);
+  if (!l) return;
+  l.pendente = !l.pendente;
+  renderConferencia();
+}
+
+// Fatura tem muita linha repetida (mercado, posto). Sem acao em lote, classificar
+// 67 linhas uma a uma faria ela desistir na segunda fatura.
+function confAplicarLote(campo, valor) {
+  const marcadas = confLinhas.filter(l => l.marcada);
+  if (!marcadas.length || !valor) return;
+  marcadas.forEach(l => {
+    if (campo === 'alocacao') { l.alocacao = valor; l.pendente = false; }
+    if (campo === 'categoria') {
+      const partes = valor.split('|');
+      l.grupo = partes[0]; l.categoria = partes[1] || partes[0]; l.pendente = false;
+    }
+  });
+  renderConferencia();
+}
+
+async function salvarConferencia() {
+  if (!confMeta || !confMeta.confere) return;
+  const statusEl = document.getElementById('confStatus');
+  const btn = document.getElementById('confAcoes').querySelector('button');
+  const semClass = confLinhas.filter(l => !l.pendente && !l.grupo);
+  if (semClass.length && !confirm(semClass.length +
+      ' lancamento(s) estao sem classificacao. Eles entram como "aguardando classificacao" e ficam FORA dos totais ate voce resolver. Continuar?')) return;
+
+  btn.disabled = true; btn.textContent = 'Gravando...';
+  statusEl.style.color = 'var(--text-muted)';
+  try {
+    const { data: { user } } = await sb.auth.getUser();
+    const linhas = confLinhas.map(l => ({
+      user_id: user.id,
+      data: l.data,
+      tipo: 'despesa',
+      categoria: l.categoria || l.grupo || 'A classificar',
+      grupo: l.grupo || null,
+      valor: l.valor,
+      descricao: l.descricao + (l.dataOriginal ? ' (parcela, compra em ' + fmtDate(l.dataOriginal) + ')' : ''),
+      alocacao: l.alocacao,
+      compartilhado_com_luciano: l.alocacao === 'casa',
+      pago_por: l.alocacao === 'casa' ? 'marcia' : null,
+      status: (l.pendente || !l.grupo) ? 'pendente' : 'confirmado',
+      origem: 'manual',
+    }));
+    // O IOF nao e uma compra, mas sai da conta junto — entra como linha propria.
+    if (confMeta.iof > 0) {
+      linhas.push({
+        user_id: user.id, data: confMeta.vencimento, tipo: 'despesa',
+        categoria: 'Taxas', grupo: 'Outros', valor: confMeta.iof,
+        descricao: 'Repasse de IOF (fatura do cartao)',
+        alocacao: 'pessoal', compartilhado_com_luciano: false, pago_por: null,
+        status: 'confirmado', origem: 'manual',
+      });
+    }
+    const { error } = await sb.from('lancamentos_domesticos').insert(linhas);
+    if (error) throw error;
+
+    document.getElementById('confFile').value = '';
+    confLinhas = []; confMeta = null;
+    renderConferencia();
+    statusEl.textContent = linhas.length + ' lancamentos gravados.';
+    orcamentoCarregado = false;
+    await loadOrcamentoData();
+  } catch (err) {
+    console.error(err);
+    statusEl.style.color = 'var(--status-critical)';
+    statusEl.textContent = 'Erro ao gravar: ' + (err.message || err);
+    btn.disabled = false; btn.textContent = 'Gravar no orcamento';
+  }
 }
 checkSession();
 </script>
