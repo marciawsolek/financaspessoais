@@ -7,6 +7,8 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <!-- leitor de planilha, usado só na importação do extrato de proventos da B3 -->
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<!-- leitor de PDF, usado na conferência de faturas de cartão -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <style>
   :root {
     color-scheme: light;
@@ -4744,6 +4746,153 @@ async function excluirLancamento(id) {
   await loadOrcamentoData();
 }
 
+
+/* ==================== CONFERÊNCIA DE FATURA (PDF) ==================== */
+// A fatura do Itaú tem DUAS COLUNAS por página, e a coluna da direita muda de
+// assunto no meio dela: passa a listar parcelas de faturas FUTURAS enquanto a
+// coluna da esquerda ainda lista compras deste mês. Por isso não dá pra separar
+// por linha nem por data — a fronteira é coluna + seção.
+//
+// Por que não dá pra filtrar por data (testado na fatura real de set/2026):
+//  - "19/11 KBM DERMATOLOGIA S10/10  R$ 580,00" tem data de novembro mas é
+//    parcela 10/10 sendo cobrada AGORA — filtrar por mês derrubaria a cobrança.
+//  - "20/08 BYD TARUMA 02/04  R$ 333,96" tem data de agosto mas está na seção
+//    de próximas faturas — filtrar por mês deixaria passar.
+//  - "13/04 DECATHLON 05/06" (cobrança atual) e "13/04 DECATHLON 06/06"
+//    (próxima fatura) têm a MESMA data e o MESMO valor. Só a seção separa.
+//
+// TRAVA: se a soma do que foi lido não bater com o "Total dos lançamentos
+// atuais" que a própria fatura declara, a importação é recusada. Melhor não
+// importar do que importar errado sem ninguém perceber.
+
+if (window.pdfjsLib) {
+  pdfjsLib.GlobalWorkerOptions.workerSrc =
+    'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+}
+
+const RE_DATA_CURTA = /^(\d{2})\/(\d{2})$/;
+
+// Junta os pedaços soltos de texto da página em linhas (mesmo Y, com tolerância),
+// cada uma já ordenada da esquerda pra direita.
+function pdfLinhasDaPagina(itens) {
+  const linhas = [];
+  itens.forEach(it => {
+    const texto = (it.str || '').trim();
+    if (!texto) return;
+    const x = it.transform[4], y = it.transform[5];
+    let linha = linhas.find(l => Math.abs(l.y - y) < 3);
+    if (!linha) { linha = { y, pedacos: [] }; linhas.push(linha); }
+    linha.pedacos.push({ x, texto });
+  });
+  linhas.forEach(l => l.pedacos.sort((a, b) => a.x - b.x));
+  linhas.sort((a, b) => b.y - a.y); // no PDF o Y cresce pra cima
+  return linhas;
+}
+
+// Onde uma coluna acaba e a outra começa. Uso a posição das datas (DD/MM), que
+// abrem toda transação: elas formam dois grupos, e o maior vão entre eles é o
+// corte. Se não achar dois grupos claros, cai pro meio da página.
+function pdfCorteColunas(linhas, largura) {
+  const xs = [];
+  linhas.forEach(l => l.pedacos.forEach(p => { if (RE_DATA_CURTA.test(p.texto)) xs.push(p.x); }));
+  if (xs.length < 4) return largura / 2;
+  xs.sort((a, b) => a - b);
+  let maiorVao = 0, corte = largura / 2;
+  for (let i = 1; i < xs.length; i++) {
+    const vao = xs[i] - xs[i - 1];
+    if (vao > maiorVao) { maiorVao = vao; corte = (xs[i] + xs[i - 1]) / 2; }
+  }
+  return maiorVao > 40 ? corte : largura / 2;
+}
+
+// Lê uma transação a partir dos pedaços de um lado da linha: DD/MM, descrição
+// no meio, valor no fim. Trata o negativo vindo separado ("-" e "0,01").
+function pdfLerTransacao(pedacos) {
+  if (pedacos.length < 2) return null;
+  const m = pedacos[0].texto.match(RE_DATA_CURTA);
+  if (!m) return null;
+  const resto = pedacos.slice(1);
+  let valor = parseValorFlexivel(resto[resto.length - 1].texto);
+  if (valor == null) return null;
+  let fimDesc = resto.length - 1;
+  if (fimDesc > 0 && resto[fimDesc - 1].texto === '-') { valor = -valor; fimDesc--; }
+  const descricao = resto.slice(0, fimDesc).map(p => p.texto).join(' ').replace(/\s+/g, ' ').trim();
+  if (!descricao) return null;
+  return { dia: m[1], mesCompra: m[2], descricao, valor };
+}
+
+const MARCADORES = {
+  futuras: 'compras parceladas',
+  internacional: 'lançamentos internacionais',
+};
+
+async function pdfLerFatura(arrayBuffer) {
+  const doc = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+  const transacoes = [];
+  let totalDeclarado = null, iof = 0, vencimento = null;
+
+  for (let p = 1; p <= doc.numPages; p++) {
+    const pagina = await doc.getPage(p);
+    const largura = pagina.view[2];
+    const conteudo = await pagina.getTextContent();
+    const linhas = pdfLinhasDaPagina(conteudo.items);
+    const corte = pdfCorteColunas(linhas, largura);
+
+    // Cada coluna tem a sua própria seção corrente, e ela muda no meio da página.
+    const secao = { esq: 'atual', dir: 'atual' };
+
+    linhas.forEach(linha => {
+      ['esq', 'dir'].forEach(lado => {
+        const pedacos = linha.pedacos.filter(p => lado === 'esq' ? p.x < corte : p.x >= corte);
+        if (!pedacos.length) return;
+        const texto = pedacos.map(p => p.texto).join(' ');
+        const minusculo = texto.toLowerCase();
+
+        if (minusculo.includes(MARCADORES.futuras)) { secao[lado] = 'futura'; return; }
+        if (minusculo.includes(MARCADORES.internacional)) { secao[lado] = 'internacional'; return; }
+
+        if (minusculo.includes('total dos lançamentos atuais')) {
+          const v = parseValorFlexivel(pedacos[pedacos.length - 1].texto);
+          if (v != null) totalDeclarado = v;
+          return;
+        }
+        if (minusculo.includes('repasse de iof')) {
+          const v = parseValorFlexivel(pedacos[pedacos.length - 1].texto);
+          if (v != null) iof += v;
+          return;
+        }
+        if (minusculo.includes('vencimento')) {
+          const m = texto.match(/(\d{2})\/(\d{2})\/(\d{4})/);
+          if (m) vencimento = `${m[3]}-${m[2]}-${m[1]}`;
+          return;
+        }
+
+        const tx = pdfLerTransacao(pedacos);
+        if (tx) transacoes.push({ ...tx, secao: secao[lado], pagina: p });
+      });
+    });
+  }
+
+  return { transacoes, totalDeclarado, iof, vencimento };
+}
+
+// Data que o lançamento recebe. Compra do próprio ciclo mantém a data real;
+// parcela antiga (a data mostrada é a da compra original, meses atrás) recebe a
+// data da fatura, que é quando o dinheiro efetivamente sai. A data original fica
+// guardada na descrição pra não se perder.
+function pdfDataDoLancamento(tx, vencimento) {
+  if (!vencimento) return null;
+  const [anoV, mesV] = vencimento.split('-').map(Number);
+  const mesC = Number(tx.mesCompra);
+  // Mês da compra maior que o da fatura => compra do ano anterior.
+  const anoC = mesC > mesV ? anoV - 1 : anoV;
+  const dataCompra = new Date(Date.UTC(anoC, mesC - 1, Number(tx.dia)));
+  const dataVenc = new Date(Date.UTC(anoV, mesV - 1, 1));
+  const diasAtras = (dataVenc - dataCompra) / 86400000;
+  if (diasAtras > 60) return { data: vencimento.slice(0, 8) + '01', parcelaAntiga: true,
+                               dataOriginal: dataCompra.toISOString().slice(0, 10) };
+  return { data: dataCompra.toISOString().slice(0, 10), parcelaAntiga: false };
+}
 checkSession();
 </script>
 </body>
