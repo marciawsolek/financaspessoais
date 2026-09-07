@@ -454,6 +454,11 @@
   .orc-seg button.active { background:var(--text-primary); color:var(--surface); font-weight:600; }
 
   .orc-chip { font-size: 10px; padding: 2px 7px; border-radius: 999px; background: color-mix(in srgb, var(--series-1) 14%, transparent); color: var(--series-1); margin-left: 6px; white-space:nowrap; }
+  .orc-fora { display:flex; flex-direction:column; gap:7px; margin-bottom:14px; padding:11px 14px;
+              border:1px solid color-mix(in srgb, var(--series-1) 35%, var(--border));
+              background: color-mix(in srgb, var(--series-1) 6%, transparent);
+              border-radius:11px; font-size:12.5px; line-height:1.5; }
+  .orc-fora-item { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
   /* ---- Conferência de fatura ---- */
   .conf-aviso { padding:12px 14px; border-radius:11px; font-size:12.5px; line-height:1.55; border:1px solid; }
   .conf-aviso.ok { border-color: color-mix(in srgb, var(--good) 45%, var(--border)); background: color-mix(in srgb, var(--good) 8%, transparent); }
@@ -938,6 +943,7 @@
       <!-- Tiles do mês -->
       <section class="orc-sec">
         <div id="orcMesAndamento" class="orc-andamento" style="display:none"></div>
+        <div id="orcForaDosTotais" class="orc-fora" style="display:none"></div>
         <div class="orc-tiles">
           <div class="tile orc-tile-hero">
             <div class="label">Saldo do mês</div>
@@ -3855,7 +3861,17 @@ async function loadOrcamentoData() {
   try {
     const { data, error } = await sb.from('lancamentos_domesticos').select('*').order('data');
     if (error) throw error;
-    DATA_ORC = { lancamentos: data || [], gastosLuciano: [], statusLuciano: null };
+    // Pendentes ("não sei ainda") e gastos de Empresa (reembolsáveis) NÃO entram
+    // nos totais do orçamento — pendente porque ainda não foi classificado, e
+    // empresa porque é dinheiro que sai e volta, não despesa dela. Separo aqui
+    // na origem pra nenhuma das somas lá na frente precisar saber disso.
+    const todos = data || [];
+    DATA_ORC = {
+      lancamentos: todos.filter(l => l.status !== 'pendente' && l.alocacao !== 'empresa'),
+      pendentes:   todos.filter(l => l.status === 'pendente'),
+      empresa:     todos.filter(l => l.alocacao === 'empresa' && l.status !== 'pendente'),
+      gastosLuciano: [], statusLuciano: null,
+    };
     document.getElementById('orcEmptyState').style.display = DATA_ORC.lancamentos.length ? 'none' : 'block';
     document.getElementById('orcConteudo').style.display = '';
     popularMesesOrcamento();
@@ -3985,6 +4001,7 @@ function renderOrcamento() {
   renderOrcChart(serie);
   renderOrcRanking(despesas);
   renderOrcCategorias(agruparPorCategoria(doMes));
+  renderPendentesEEmpresa();
   renderMatrizAno(); // independe do mês selecionado, mas atualiza junto (ex: após novo lançamento)
   renderLucianoPanel();
   renderOrcListaMes(doMes);
@@ -5275,6 +5292,33 @@ async function salvarConferencia() {
     statusEl.textContent = 'Erro ao gravar: ' + (err.message || err);
     btn.disabled = false; btn.textContent = 'Gravar no orcamento';
   }
+}
+
+// Pendentes e reembolsos da empresa ficam fora dos totais — mas não podem ficar
+// invisíveis, senão viram trabalho esquecido e dinheiro esquecido.
+function renderPendentesEEmpresa() {
+  const el = document.getElementById('orcForaDosTotais');
+  if (!el || !DATA_ORC) return;
+  const pend = DATA_ORC.pendentes || [];
+  const emp = (DATA_ORC.empresa || []).filter(l => !l.reembolsado_em);
+  const somaPend = pend.reduce((s, l) => s + Number(l.valor), 0);
+  const somaEmp = emp.reduce((s, l) => s + Number(l.valor), 0);
+  if (!pend.length && !emp.length) { el.style.display = 'none'; el.innerHTML = ''; return; }
+
+  el.style.display = '';
+  el.innerHTML =
+    (pend.length ? '<div class="orc-fora-item">' +
+      '<strong>' + pend.length + ' lançamento(s) aguardando classificação</strong> · ' + brl(somaPend) +
+      ' <span class="conf-nota">— fora dos totais até você classificar</span>' +
+      ' <button class="row-action" onclick="abrirLancamentosLista(\'Aguardando classificação\', \'' +
+        pend.length + ' lançamento(s) · ' + brl(somaPend) + '\', DATA_ORC.pendentes)">ver</button>' +
+    '</div>' : '') +
+    (emp.length ? '<div class="orc-fora-item">' +
+      '<strong>' + brl(somaEmp) + ' a receber da empresa</strong> · ' + emp.length + ' lançamento(s)' +
+      ' <span class="conf-nota">— gasto reembolsável, fora do seu orçamento</span>' +
+      ' <button class="row-action" onclick="abrirLancamentosLista(\'A receber da empresa\', \'' +
+        emp.length + ' lançamento(s) · ' + brl(somaEmp) + '\', DATA_ORC.empresa.filter(l => !l.reembolsado_em))">ver</button>' +
+    '</div>' : '');
 }
 checkSession();
 </script>
