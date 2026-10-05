@@ -511,6 +511,27 @@
   tr.matriz-bloco .matriz-cat { background: color-mix(in srgb, var(--text-primary) 5%, var(--surface)); }
   tr.matriz-subtotal td { font-weight: 600; border-top: 1px solid var(--baseline); }
   tr.matriz-subtotal .matriz-cat { background: var(--surface); }
+  /* Tabelas no formato da planilha "26 ADM CASA" */
+  .plan-wrap td.tabular, .plan-wrap th:not(.matriz-cat) { text-align: right; white-space: nowrap; }
+  .orc-sec-head .link-btn { font-size: 12.5px; color: var(--text-secondary); background:none; border:none; cursor:pointer; text-decoration: underline; text-underline-offset: 3px; padding:0; }
+  .plan-wrap .link-btn { background:none; border:0; padding:0; font:inherit; color:inherit; cursor:pointer; text-align:left; }
+  .plan-wrap .link-btn:hover { text-decoration: underline; text-underline-offset: 3px; }
+  .matriz-wrap.plan-wrap table { font-size: 12px; }
+  .matriz-wrap.plan-wrap thead th, .matriz-wrap.plan-wrap tbody td { padding: 6px 8px; }
+  .plan-wrap .matriz-cat { white-space: nowrap; }
+  .plan-wrap thead th { color: var(--text-muted); font-weight: 600; }
+  .plan-wrap .matriz-cell.vazia { color: var(--border); }
+  tr.plan-pai td { font-weight: 600; background: color-mix(in srgb, var(--text-primary) 4%, var(--surface)); }
+  tr.plan-pai .matriz-cat { background: color-mix(in srgb, var(--text-primary) 4%, var(--surface)); }
+  tr.plan-filho td { color: var(--text-secondary); }
+  tr.plan-filho .matriz-cat { padding-left: 26px; font-weight: 400; }
+  tr.plan-extra td { color: var(--text-muted); font-style: italic; }
+  tr.plan-total td { font-weight: 700; border-top: 2px solid var(--text-primary); }
+  tr.plan-rodape td { font-weight: 600; }
+  .plan-wrap .plan-sel { background-color: color-mix(in srgb, var(--series-1) 9%, transparent); }
+  .plan-wrap thead .plan-sel { color: var(--text-primary); }
+  .plan-wrap .plan-divisa { border-left: 1px solid var(--baseline); }
+  .plan-deve { color: var(--series-1); }
 
   .orc-andamento {
     display:flex; align-items:flex-start; gap:9px; margin-bottom:14px; padding:11px 14px;
@@ -999,80 +1020,50 @@
         </div>
       </section>
 
-      <!-- Entradas x saídas por categoria — dois painéis independentes -->
+      <!-- Planilha "26 ADM CASA": mesmos 3 blocos, mesma ordem de linhas -->
       <section class="orc-sec">
         <div class="orc-sec-head">
           <div>
-            <span class="orc-eyebrow">Detalhe do mês</span>
-            <h2>Entradas e saídas por categoria</h2>
+            <span class="orc-eyebrow">Planilha · <span id="planAno"></span></span>
+            <h2>Receitas</h2>
           </div>
-          <span class="orc-sec-note">Cada painel soma 100% dele mesmo · clique numa linha para ver os lançamentos</span>
+          <span class="orc-sec-note">Clique num valor para ver os lançamentos</span>
         </div>
-        <div class="orc-split" id="orcCategoriasSplit"></div>
-      </section>
-
-      <!-- Total do período por categoria/grupo — independe do mês selecionado -->
-      <section class="orc-sec">
-        <div class="section-head collapsible" onclick="toggleSection('orcAno')">
-          <div class="section-title-wrap">
-            <h2>O ano inteiro, mês a mês</h2>
-            <span class="section-summary" id="orcAnoPeriodo"></span>
-          </div>
-          <span class="collapse-chevron" id="orcAnoChevron">▾</span>
-        </div>
-        <div class="collapsible-body" id="orcAnoBody" style="display:none">
-          <div class="orc-toggle-row">
-            <div class="orc-seg" id="orcAnoSeg">
-              <button id="orcAnoCatBtn" class="active" onclick="setOrcAnoModo('categoria')">Por categoria</button>
-              <button id="orcAnoGrupoBtn" onclick="setOrcAnoModo('grupo')">Por grupo</button>
-            </div>
-            <span style="font-size:11.5px;color:var(--text-muted);">Quanto mais forte o fundo da célula, maior o gasto daquele mês <em>para aquela categoria</em> · clique numa célula para ver os lançamentos</span>
-          </div>
-          <div class="table-wrap matriz-wrap">
-            <table>
-              <thead><tr id="orcMatrizHead"></tr></thead>
-              <tbody id="orcMatrizBody"></tbody>
-            </table>
+        <div class="card plan-card">
+          <div class="table-wrap matriz-wrap plan-wrap">
+            <table><thead><tr id="planRecHead"></tr></thead><tbody id="planRecBody"></tbody></table>
           </div>
         </div>
       </section>
 
-      <!-- Painel divisão com Luciano -->
       <section class="orc-sec">
-        <div class="section-head collapsible" onclick="toggleSection('luciano')">
-          <div class="section-title-wrap">
-            <h2>Divisão de contas com Luciano</h2>
-            <span class="section-summary" id="lucianoSummary"></span>
+        <div class="orc-sec-head">
+          <div>
+            <span class="orc-eyebrow">Planilha · só Marcia</span>
+            <h2>Minhas despesas</h2>
           </div>
-          <span class="collapse-chevron" id="lucianoChevron">▾</span>
+          <button class="link-btn" id="planDetalheBtn" onclick="togglePlanDetalhe()">Esconder detalhe</button>
         </div>
-        <div class="collapsible-body" id="lucianoBody" style="display:none">
-          <div id="lucianoStatus" style="font-size:11.5px;margin-bottom:12px;"></div>
-          <div class="ta-grid" id="lucianoStats"></div>
+        <div class="card plan-card">
+          <div class="table-wrap matriz-wrap plan-wrap">
+            <table><thead><tr id="planPesHead"></tr></thead><tbody id="planPesBody"></tbody></table>
+          </div>
+        </div>
+      </section>
+
+      <section class="orc-sec">
+        <div class="orc-sec-head">
+          <div>
+            <span class="orc-eyebrow">Planilha · dividido com Luciano</span>
+            <h2>Contas da casa</h2>
+          </div>
+          <span class="orc-sec-note" id="lucianoStatus"></span>
+        </div>
+        <div class="card plan-card">
+          <div class="table-wrap matriz-wrap plan-wrap">
+            <table><thead id="planCasaHead"></thead><tbody id="planCasaBody"></tbody></table>
+          </div>
           <div id="lucianoAcaoRecebimento"></div>
-
-          <div class="ops-lista-wrap">
-            <div class="ops-lista-titulo">Mês a mês · clique num mês para abri-lo</div>
-            <div class="table-wrap">
-              <table>
-                <thead><tr><th>Mês</th><th>Compartilhado</th><th>Pago Marcia</th><th>Pago Luciano</th><th>Recebido</th><th>Luciano deve</th></tr></thead>
-                <tbody id="lucianoMesesBody"></tbody>
-              </table>
-            </div>
-            <div style="font-size:11.5px;color:var(--text-muted);margin-top:10px;line-height:1.5;" id="lucianoAcumulado"></div>
-          </div>
-
-          <div class="ops-lista-wrap">
-            <div class="orc-toggle-row">
-              <div class="ops-lista-titulo" style="margin-bottom:0;">Despesas compartilhadas do mês selecionado</div>
-              <div class="orc-seg" id="lucianoFiltroSeg">
-                <button id="lucianoFiltroGeral" class="active" onclick="setLucianoFiltro('geral')">Geral</button>
-                <button id="lucianoFiltroMarcia" onclick="setLucianoFiltro('marcia')">Marcia</button>
-                <button id="lucianoFiltroLuciano" onclick="setLucianoFiltro('luciano')">Luciano</button>
-              </div>
-            </div>
-            <div id="lucianoLista"></div>
-          </div>
         </div>
       </section>
 
@@ -3839,7 +3830,6 @@ window.addEventListener('scroll', () => { document.getElementById('tooltip').sty
 let DATA_ORC = null; // { lancamentos: [...] }
 let orcamentoCarregado = false;
 let orcMesAtual = null; // 'YYYY-MM'
-let orcCatsAtuais = []; // categorias renderizadas na tabela do mês, pro drill-down por índice
 
 function switchView(view) {
   const isInv = view === 'investimentos';
@@ -3950,25 +3940,6 @@ function lancamentosDoMes(mes) {
   return DATA_ORC.lancamentos.filter(l => l.data.slice(0, 7) === mes);
 }
 
-function agruparPorCategoria(lista) {
-  return agruparPor(lista, l => l.categoria);
-}
-
-// Agrupa por qualquer chave (categoria, grupo, ...) — usado no mês selecionado
-// e no total do período. O "grupo" exibido é sempre o da 1ª linha do balde;
-// como cada categoria tem um grupo fixo, não varia dentro do mesmo balde
-// (exceto ao agrupar por grupo, onde vira o próprio nome do balde).
-function agruparPor(lista, keyFn) {
-  const map = {};
-  lista.forEach(l => {
-    const chave = keyFn(l) || 'Sem grupo';
-    if (!map[chave]) map[chave] = { categoria: chave, grupo: l.grupo, total: 0, itens: [] };
-    map[chave].total += Number(l.valor);
-    map[chave].itens.push(l);
-  });
-  return Object.values(map);
-}
-
 function renderOrcamento() {
   if (!DATA_ORC) return;
   orcMesAtual = document.getElementById('orcMesSelect').value || orcMesAtual;
@@ -4017,10 +3988,8 @@ function renderOrcamento() {
 
   renderOrcChart(serie);
   renderOrcRanking(despesas);
-  renderOrcCategorias(agruparPorCategoria(doMes));
   renderPendentesEEmpresa();
-  renderMatrizAno(); // independe do mês selecionado, mas atualiza junto (ex: após novo lançamento)
-  renderLucianoPanel();
+  renderPlanilhaOrcamento();
   renderOrcListaMes(doMes);
 }
 
@@ -4270,7 +4239,7 @@ function renderOrcRanking(despesas) {
 
   const map = {};
   despesas.forEach(l => {
-    const chave = orcRankModo === 'grupo' ? (l.grupo || 'Sem grupo') : l.categoria;
+    const chave = orcRankModo === 'grupo' ? orcPaiDe(l) : l.categoria;
     map[chave] = (map[chave] || 0) + Number(l.valor);
   });
   let itens = Object.entries(map).map(([nome, total]) => ({ nome, total, chaves: [nome] })).sort((a, b) => b.total - a.total);
@@ -4358,7 +4327,7 @@ function renderOrcRanking(despesas) {
 function abrirLancamentosRanking(i) {
   const it = orcRankItensAtuais[i];
   if (!it) return;
-  const chaveDe = l => orcRankModo === 'grupo' ? (l.grupo || 'Sem grupo') : l.categoria;
+  const chaveDe = l => orcRankModo === 'grupo' ? orcPaiDe(l) : l.categoria;
   const itens = lancamentosDoMes(orcMesAtual)
     .filter(l => l.tipo === 'despesa' && it.chaves.includes(chaveDe(l)));
   const total = itens.reduce((s, l) => s + Number(l.valor), 0);
@@ -4366,170 +4335,229 @@ function abrirLancamentosRanking(i) {
     `${itens.length} lançamento(s) · total ${brl(total)}`, itens);
 }
 
-// Componente genérico de dois painéis (Entradas/Saídas) — usado tanto pro mês
-// selecionado quanto pro total do período. Numa lista só elas se misturavam e
-// o "%" não dizia de que base era. A barra compara com a maior categoria do
-// próprio painel; o "%" é a fatia dentro do painel. Devolve a lista na ordem
-// exibida, pra quem chamou guardar e resolver o drill-down por índice.
-function renderSplitPanel(elId, agrupados, onclickFn, vazioSufixo) {
-  const el = document.getElementById(elId);
-  if (!el) return [];
-  const porTipo = tipo => agrupados.filter(c => c.itens[0].tipo === tipo).sort((a, b) => b.total - a.total);
-  const blocos = [
-    { tipo: 'receita', titulo: 'Entradas', cor: ORC_COR_RECEITA, itens: porTipo('receita') },
-    { tipo: 'despesa', titulo: 'Saídas', cor: ORC_COR_DESPESA, itens: porTipo('despesa') },
-  ];
-  const ordenado = blocos.flatMap(b => b.itens);
+/* ---------------- Planilha "26 ADM CASA" ----------------
+   As três tabelas reproduzem a aba da planilha dela: mesma ordem de linhas,
+   mesmos nomes, jan–dez nas colunas. Cada lançamento do banco é encaixado
+   numa linha pelo nome da categoria (sem acento/caixa/pontuação), com apelidos
+   para os nomes da tela de conferência de fatura. O que não casar com nenhuma
+   linha aparece numa linha própria, em itálico — nunca some do total. */
+const PLAN_RECEITAS = ['SALARIO 15', 'SALARIO 05', 'PREMIO', '13° /PLR/FERIAS/PREMIAÇOES', 'I FOOD (29)',
+  'NOTA PR/CWB/CASHBACK', 'REIKI/RADIESTESIA', 'OUTROS', 'RESTITUIÇÃO IRPF', 'PROVENTOS'];
 
-  let i = 0;
-  el.innerHTML = blocos.map(bloco => {
-    const total = bloco.itens.reduce((s, c) => s + c.total, 0);
-    const max = Math.max(1, ...bloco.itens.map(c => c.total));
-    const linhas = bloco.itens.length ? bloco.itens.map(c => {
-      const idx = i++;
-      const share = total ? c.total / total : 0;
-      const compartilhado = c.itens.some(it => it.compartilhado_com_luciano);
-      return `
-      <button type="button" class="orc-line" onclick="${onclickFn}(${idx})">
-        <span class="orc-line-nome">${escapeHtml(c.categoria)}${compartilhado ? '<span class="orc-chip">Luciano</span>' : ''}</span>
-        <span class="orc-line-val">${brl(c.total)}</span>
-        <span class="orc-line-meta">
-          <span class="orc-line-grupo">${escapeHtml(c.grupo || '—')}</span>
-          <span class="orc-line-track"><span class="orc-line-fill" style="width:${(c.total / max * 100).toFixed(1)}%;background:${bloco.cor}"></span></span>
-          <span class="orc-line-pct">${(share * 100).toFixed(1)}%</span>
-        </span>
-      </button>`;
-    }).join('') : `<div class="orc-empty">Nenhuma ${bloco.tipo}${vazioSufixo || ''}.</div>`;
-    return `
-      <div class="orc-panel">
-        <div class="orc-panel-head">
-          <span class="orc-panel-title"><span class="orc-panel-key" style="background:${bloco.cor}"></span>${bloco.titulo}</span>
-          <span class="orc-panel-total">${brl(total)}</span>
-        </div>
-        <div>${linhas}</div>
-      </div>`;
-  }).join('');
-  return ordenado;
-}
+const PLAN_PESSOAL = [
+  ['PESSOAL/CASA', ['ALIMENTAÇÃO', 'BEB ALCOOLICA', 'BELLA', 'VIVO', 'ITENS CASA']],
+  ['SAUDE', ['ECO SALVA+ LUTO', 'ESPIRITUALIDADE', 'MEDICOS', 'TERAPIAS', 'MEDICAMENTOS']],
+  ['AUTO CUIDADO', ['MASSAGEM/ OSTEOPATA', 'ESTÉTICA', 'ATIVIDADE FISICA', 'SALAO DE BELEZA', 'PERFUMARIA']],
+  ['VESTUÁRIO', ['ROUPAS', 'LINGERIE/PRAIA', 'CALÇADOS', 'SAP/COSTUREIRA', 'ACESSÓRIOS']],
+  ['LAZER', ['EVENTOS/PUBS/REF VIAG', 'LOGISTICA', 'HOSPEDAGEM', 'HOG', 'INGRESSOS ENTRET']],
+  ['EDUCAÇÃO', ['LIVROS', 'CURSOS', 'PALESTRAS', 'APP/ EQUIP']],
+  ['TRANSPORTE', ['PEDAGIO', 'UBER', 'ESTACIONAMENTO', 'COMBUSTIVEL']],
+  ['HARLEY', ['LAVAGEM', 'MANUTENÇÃO', 'IPVA/LICENC', 'SEGURO']],
+  ['OUTROS', ['ADVOGADO', 'UNILUTUS', 'TAXAS', 'IRPF /TXS INV', 'OUTROS', 'PRESENTES']],
+  ['DOAÇÕES', ['TERREIRO', 'VENDAS SINALEIRO', 'DOAÇÕES']],
+  ['PAIS', ['NETFLIX PAIS', 'VIVO PAIS', 'ECO SALVA + UNIL', 'AMIL MARCIA']],
+];
 
-function renderOrcCategorias(cats) {
-  orcCatsAtuais = renderSplitPanel('orcCategoriasSplit', cats, 'abrirLancamentosIdx', ' neste mês');
-}
+const PLAN_CASA = ['LUZ', 'AGUA', 'GAS', 'IPTU', 'NETFLIX', 'YOUTUBE', 'TV/INTERNET', 'ITUNES',
+  'MERCADO/ALIMENTAÇÃO', 'FARMACIA/ITENS HIGIENE', 'LIMPEZA CASA', 'JARDIM', 'MANUTENÇÃO CASA',
+  'ITENS PARA CASA', 'BELLA BANHO', 'BELLA - PETLOVE', 'BELLA  RAÇÃO', 'BELLA SAUDE', 'TERREIRO',
+  'LAZER', 'SONG', 'SEGURO SONG', 'ESTACIPEDA/COMB/PED', 'WELLHUB', 'OUTROS'];
 
-function abrirLancamentosIdx(i) {
-  const c = orcCatsAtuais[i];
-  if (!c) return;
-  abrirLancamentosLista(`${c.categoria} — ${mesLabel(orcMesAtual + '-01')}`, `${c.itens.length} lançamento(s) · total ${brl(c.total)}`, c.itens);
-}
+const planNorm = s => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase().replace(/[^A-Z0-9]/g, '');
 
-// ---- Matriz do ano: categoria × mês + total (independe do mês selecionado) ----
-// Mesma informação da planilha, mas com três coisas que planilha não dá: a célula
-// é sombreada pela intensidade DENTRO DA PRÓPRIA LINHA (o mês fora da curva salta
-// sem precisar ler número), as linhas vêm ordenadas pelo total, e cada célula é
-// clicável pra ver os lançamentos que a compõem.
-let orcAnoModo = 'categoria'; // 'categoria' | 'grupo'
-let orcMatrizLinhas = [];     // linhas na ordem exibida — o clique acha por índice
+// Apelidos (já normalizados) -> linha da planilha. Cobrem a taxonomia da
+// conferência de fatura e nomes que o sistema do Luciano pode usar.
+const PLAN_APELIDO_PESSOAL = {
+  MERCADO: 'ALIMENTAÇÃO', BELLABANHO: 'BELLA', BELLAPETLOVE: 'BELLA', BELLARACAO: 'BELLA', BELLASAUDE: 'BELLA',
+  FARMACIAHIGIENE: 'MEDICAMENTOS', INGRESSOS: 'INGRESSOS ENTRET', EVENTOSPUBS: 'EVENTOS/PUBS/REF VIAG',
+  ESTACIONAMEMNTO: 'ESTACIONAMENTO', IPVALICENCIAMENTO: 'IPVA/LICENC', IRPFTAXASINVEST: 'IRPF /TXS INV',
+  IRPRTXSINV: 'IRPF /TXS INV',
+};
+const PLAN_APELIDO_CASA = {
+  ALIMENTACAO: 'MERCADO/ALIMENTAÇÃO', MERCADO: 'MERCADO/ALIMENTAÇÃO', FARMACIAHIGIENE: 'FARMACIA/ITENS HIGIENE',
+  ITENSCASA: 'ITENS PARA CASA', BELLAPETLOVE: 'BELLA - PETLOVE', BELLARACAO: 'BELLA  RAÇÃO',
+  ESTACIONAMENTO: 'ESTACIPEDA/COMB/PED', COMBUSTIVEL: 'ESTACIPEDA/COMB/PED', PEDAGIO: 'ESTACIPEDA/COMB/PED',
+  INTERNET: 'TV/INTERNET', ENERGIA: 'LUZ', COPEL: 'LUZ', SANEPAR: 'AGUA',
+};
+// Grupo da taxonomia da fatura -> bloco da planilha, quando o nome não casa.
+const PLAN_GRUPO_PARA_PAI = {
+  CASA: 'PESSOAL/CASA', ALIMENTACAO: 'PESSOAL/CASA', PET: 'PESSOAL/CASA', SAUDE: 'SAUDE',
+  BELEZAAUTOCUIDADO: 'AUTO CUIDADO', VESTUARIO: 'VESTUÁRIO', LAZER: 'LAZER', EDUCACAO: 'EDUCAÇÃO',
+  TRANSPORTE: 'TRANSPORTE', PRESENTESDOACOES: 'DOAÇÕES', PAIS: 'PAIS', OUTROS: 'OUTROS',
+};
 
-function setOrcAnoModo(modo) {
-  orcAnoModo = modo;
-  document.getElementById('orcAnoCatBtn').classList.toggle('active', modo === 'categoria');
-  document.getElementById('orcAnoGrupoBtn').classList.toggle('active', modo === 'grupo');
-  renderMatrizAno();
-}
-
-function renderMatrizAno() {
-  if (!DATA_ORC) return;
-  const headEl = document.getElementById('orcMatrizHead');
-  const bodyEl = document.getElementById('orcMatrizBody');
-  if (!headEl || !bodyEl) return;
-
-  const keyFn = orcAnoModo === 'grupo' ? (l => l.grupo || 'Sem grupo') : (l => l.categoria);
-  const lanc = DATA_ORC.lancamentos;
-  const comDados = orcMesesComDados();
-  const meses = orcMesesCalendario(); // jan–dez inteiro; meses futuros já com coluna
-
-  const periodoEl = document.getElementById('orcAnoPeriodo');
-  if (periodoEl) {
-    periodoEl.textContent = comDados.length
-      ? `${mesLabel(comDados[0] + '-01')} a ${mesLabel(comDados[comDados.length - 1] + '-01')} (${comDados.length} ${comDados.length === 1 ? 'mês' : 'meses'} com lançamentos)`
-      : 'Sem lançamentos ainda';
+const PLAN_IDX = (() => {
+  const filho = {}, pai = {};
+  PLAN_PESSOAL.forEach(([p, fs]) => {
+    pai[planNorm(p)] = p;
+    fs.forEach(f => { if (!filho[planNorm(f)]) filho[planNorm(f)] = { pai: p, filho: f }; });
+  });
+  // OUTROS e DOAÇÕES são pai e filho ao mesmo tempo: o nome sozinho cai no filho.
+  for (const [ap, f] of Object.entries(PLAN_APELIDO_PESSOAL)) {
+    const alvo = filho[planNorm(f)]; if (alvo && !filho[ap]) filho[ap] = alvo;
   }
-  if (!comDados.length) {
-    headEl.innerHTML = '';
-    bodyEl.innerHTML = '<tr><td class="orc-empty">Nenhum lançamento ainda.</td></tr>';
-    orcMatrizLinhas = [];
-    return;
-  }
+  const casa = {};
+  PLAN_CASA.forEach(c => { casa[planNorm(c)] = c; });
+  for (const [ap, c] of Object.entries(PLAN_APELIDO_CASA)) if (!casa[ap]) casa[ap] = c;
+  const rec = {};
+  PLAN_RECEITAS.forEach(r => { rec[planNorm(r)] = r; });
+  return { filho, pai, casa, rec };
+})();
 
-  headEl.innerHTML = `<th class="matriz-cat">${orcAnoModo === 'grupo' ? 'Grupo' : 'Categoria'}</th>` +
-    meses.map(m => `<th${comDados.includes(m) ? '' : ' style="color:var(--text-muted);font-weight:400"'}>${mesLabel(m + '-01')}</th>`).join('') +
-    `<th class="matriz-total-col">Total</th>`;
+const PLAN_SEM_DETALHE = '(sem detalhe)';
 
-  orcMatrizLinhas = [];
-  const blocos = [
-    { tipo: 'receita', titulo: 'Entradas', cor: ORC_COR_RECEITA },
-    { tipo: 'despesa', titulo: 'Saídas', cor: ORC_COR_DESPESA },
-  ];
+// Número compacto, como na planilha (sem "R$" nem centavos), pra jan–dez +
+// total caberem na tela; o valor exato fica no title e no clique.
+const planNum = v => Number(v).toLocaleString('pt-BR', { maximumFractionDigits: 0 });
+const planCel = (v, idx) => `title="${brl(v)}" onclick="planAbrir(${idx})">${planNum(v)}`;
 
-  bodyEl.innerHTML = blocos.map(bloco => {
-    const doTipo = lanc.filter(l => l.tipo === bloco.tipo);
-    if (!doTipo.length) return '';
+// Onde um lançamento de despesa pessoal cai: { pai, filho }.
+function planLinhaPessoal(l) {
+  const n = planNorm(l.categoria);
+  if (PLAN_IDX.filho[n]) return PLAN_IDX.filho[n];
+  if (PLAN_IDX.pai[n]) return { pai: PLAN_IDX.pai[n], filho: PLAN_SEM_DETALHE };
+  const pai = PLAN_IDX.pai[planNorm(l.grupo)] || PLAN_GRUPO_PARA_PAI[planNorm(l.grupo)] || 'OUTROS';
+  return { pai, filho: String(l.categoria || 'Sem categoria').toUpperCase() };
+}
+function planLinhaCasa(categoria) {
+  return PLAN_IDX.casa[planNorm(categoria)] || String(categoria || 'Sem categoria').toUpperCase();
+}
+function planLinhaReceita(l) {
+  return PLAN_IDX.rec[planNorm(l.categoria)] || String(l.categoria || 'Sem categoria').toUpperCase();
+}
+// Usado também pelo ranking "por grupo", pra falar a mesma língua da planilha.
+function orcPaiDe(l) {
+  return l.compartilhado_com_luciano ? 'CASA (dividido)' : planLinhaPessoal(l).pai;
+}
 
-    const chaves = [...new Set(doTipo.map(keyFn))];
-    const linhas = chaves.map(chave => {
-      const itens = doTipo.filter(l => keyFn(l) === chave);
-      const porMes = {};
-      itens.forEach(l => {
-        const m = l.data.slice(0, 7);
-        porMes[m] = (porMes[m] || 0) + Number(l.valor);
-      });
-      return { chave, porMes, itens, total: itens.reduce((s, l) => s + Number(l.valor), 0), tipo: bloco.tipo };
-    }).sort((a, b) => b.total - a.total);
+let planDetalhe = true;
+function togglePlanDetalhe() {
+  planDetalhe = !planDetalhe;
+  document.getElementById('planDetalheBtn').textContent = planDetalhe ? 'Esconder detalhe' : 'Mostrar detalhe';
+  renderPlanilhaOrcamento();
+}
 
-    const totalBloco = linhas.reduce((s, l) => s + l.total, 0);
-    const totalPorMes = {};
-    meses.forEach(m => { totalPorMes[m] = linhas.reduce((s, l) => s + (l.porMes[m] || 0), 0); });
+let planCelulas = []; // listas de lançamentos por célula — o clique acha por índice
+function planAbrir(i) {
+  const c = planCelulas[i];
+  if (c) abrirLancamentosLista(c.titulo, `${c.itens.length} lançamento(s) · total ${brl(c.itens.reduce((s, l) => s + Number(l.valor), 0))}`, c.itens);
+}
 
-    const trs = linhas.map(linha => {
-      const idx = orcMatrizLinhas.push(linha) - 1;
-      // Escala do sombreamento é por LINHA: destaca o mês atípico daquela categoria,
-      // em vez de só repintar de escuro quem gasta muito (isso o total já diz).
-      const maxLinha = Math.max(...meses.map(m => linha.porMes[m] || 0), 0);
-      const celulas = meses.map(m => {
-        const v = linha.porMes[m];
-        if (v == null) return `<td class="tabular matriz-cell vazia">—</td>`;
-        const intensidade = maxLinha > 0 ? (v / maxLinha) : 0;
-        const fundo = `background:color-mix(in srgb, ${bloco.cor} ${(intensidade * 26).toFixed(0)}%, transparent)`;
-        return `<td class="tabular matriz-cell" style="${fundo}" onclick="abrirLancamentosMatriz(${idx}, '${m}')"
-                    title="${escapeHtml(linha.chave)} · ${mesLabel(m + '-01')}: ${brl(v)}">${brl(v)}</td>`;
-      }).join('');
-      return `<tr>
-        <td class="matriz-cat"><button type="button" class="link-btn" onclick="abrirLancamentosMatriz(${idx})">${escapeHtml(linha.chave)}</button></td>
-        ${celulas}
-        <td class="tabular matriz-total-col">${brl(linha.total)}</td>
-      </tr>`;
+function renderPlanilhaOrcamento() {
+  if (!DATA_ORC || !document.getElementById('planRecBody')) return;
+  const ano = (orcMesAtual || new Date().toISOString()).slice(0, 4);
+  const meses = MESES.map((_, i) => `${ano}-${String(i + 1).padStart(2, '0')}`);
+  const doAno = DATA_ORC.lancamentos.filter(l => String(l.data).startsWith(ano));
+  document.getElementById('planAno').textContent = ano;
+  planCelulas = [];
+
+  const sel = m => m === orcMesAtual ? ' plan-sel' : '';
+  const cab = `<th class="matriz-cat"></th>` +
+    meses.map(m => `<th class="${sel(m).trim()}">${MESES[+m.slice(5) - 1].toUpperCase()}</th>`).join('') +
+    `<th class="matriz-total-col">TOTAL</th>`;
+
+  // Uma linha da planilha: soma por mês, cada célula abre os lançamentos dela.
+  const linha = (rotulo, itens, classe, tituloBase) => {
+    const titulo = tituloBase || rotulo;
+    const celulas = meses.map(m => {
+      const lista = itens.filter(l => String(l.data).slice(0, 7) === m);
+      if (!lista.length) return `<td class="tabular matriz-cell vazia${sel(m)}">—</td>`;
+      const idx = planCelulas.push({ titulo: `${titulo} — ${mesLabel(m + '-01')}`, itens: lista }) - 1;
+      return `<td class="tabular matriz-cell${sel(m)}" ${planCel(lista.reduce((s, l) => s + Number(l.valor), 0), idx)}</td>`;
     }).join('');
+    let nome = escapeHtml(rotulo);
+    if (itens.length) {
+      const idx = planCelulas.push({ titulo: `${titulo} — ${ano}`, itens }) - 1;
+      nome = `<button type="button" class="link-btn" onclick="planAbrir(${idx})">${nome}</button>`;
+    }
+    const total = itens.reduce((s, l) => s + Number(l.valor), 0);
+    return `<tr class="${classe || ''}"><td class="matriz-cat">${nome}</td>${celulas}<td class="tabular matriz-total-col">${itens.length ? planNum(total) : '—'}</td></tr>`;
+  };
 
-    return `
-      <tr class="matriz-bloco"><td class="matriz-cat">${bloco.titulo}</td>${meses.map(() => '<td></td>').join('')}<td></td></tr>
-      ${trs}
-      <tr class="matriz-subtotal">
-        <td class="matriz-cat">Total de ${bloco.titulo.toLowerCase()}</td>
-        ${meses.map(m => `<td class="tabular">${comDados.includes(m) ? brl(totalPorMes[m]) : '—'}</td>`).join('')}
-        <td class="tabular matriz-total-col">${brl(totalBloco)}</td>
-      </tr>`;
-  }).join('');
+  // ---- Receitas (+ PAYTRACK embaixo, fora do total, como na planilha) ----
+  const receitas = doAno.filter(l => l.tipo === 'receita');
+  const linhasRec = [...PLAN_RECEITAS];
+  receitas.forEach(l => { const r = planLinhaReceita(l); if (!linhasRec.includes(r)) linhasRec.push(r); });
+  const paytrack = (DATA_ORC.empresa || []).filter(l => l.tipo === 'receita' && String(l.data).startsWith(ano));
+  document.getElementById('planRecHead').innerHTML = cab;
+  document.getElementById('planRecBody').innerHTML =
+    linhasRec.map(r => linha(r, receitas.filter(l => planLinhaReceita(l) === r),
+      PLAN_RECEITAS.includes(r) ? '' : 'plan-extra')).join('') +
+    linha('TOTAL', receitas, 'plan-total', 'Receitas') +
+    linha('PAYTRACK', paytrack, 'plan-rodape', 'PAYTRACK (reembolso Sun Pharma, fora do total)');
+
+  // ---- Minhas despesas: total do grupo + detalhe embaixo ----
+  const pessoais = doAno.filter(l => l.tipo === 'despesa' && !l.compartilhado_com_luciano);
+  const comLinha = pessoais.map(l => ({ l, ...planLinhaPessoal(l) }));
+  document.getElementById('planPesHead').innerHTML = cab;
+  document.getElementById('planPesBody').innerHTML = PLAN_PESSOAL.map(([pai, filhos]) => {
+    const doPai = comLinha.filter(x => x.pai === pai);
+    const extras = [...new Set(doPai.map(x => x.filho).filter(f => !filhos.includes(f)))];
+    const detalhe = planDetalhe ? [...filhos, ...extras].map(f =>
+      linha(f, doPai.filter(x => x.filho === f).map(x => x.l),
+        filhos.includes(f) ? 'plan-filho' : 'plan-filho plan-extra', `${pai} › ${f}`)).join('') : '';
+    return linha(pai, doPai.map(x => x.l), 'plan-pai') + detalhe;
+  }).join('') + linha('TOTAL SÓ MARCIA', pessoais, 'plan-total', 'Minhas despesas');
+
+  renderPlanilhaCasa(ano, meses, sel);
 }
 
-// Sem mês = a linha inteira (todo o período). Com mês = só aquela célula.
-function abrirLancamentosMatriz(idx, mes) {
-  const linha = orcMatrizLinhas[idx];
-  if (!linha) return;
-  const rotulo = orcAnoModo === 'grupo' ? `Grupo: ${linha.chave}` : linha.chave;
-  const itens = mes ? linha.itens.filter(l => l.data.slice(0, 7) === mes) : linha.itens;
-  const total = itens.reduce((s, l) => s + Number(l.valor), 0);
-  const quando = mes ? mesLabel(mes + '-01') : 'todo o período';
-  abrirLancamentosLista(`${rotulo} — ${quando}`, `${itens.length} lançamento(s) · total ${brl(total)}`, itens);
+// Bloco da casa: duas colunas por mês (quem pagou) e, embaixo, a conta do
+// acerto igual à planilha — total pago, valor por pessoa, depósito e saldo.
+function renderPlanilhaCasa(ano, meses, sel) {
+  const todas = gastosCompartilhados().filter(g => String(g.mes).startsWith(ano));
+  const linhas = [...PLAN_CASA];
+  todas.forEach(g => { const c = planLinhaCasa(g.categoria); if (!linhas.includes(c)) linhas.push(c); });
+  const soma = lista => lista.reduce((s, g) => s + Number(g.valor), 0);
+  const colunas = [...meses, null]; // null = coluna TOTAL do ano
+
+  document.getElementById('planCasaHead').innerHTML =
+    `<tr><th class="matriz-cat" rowspan="2"></th>${meses.map(m =>
+      `<th colspan="2" class="plan-divisa${sel(m)}" style="text-align:center">${MESES[+m.slice(5) - 1].toUpperCase()}</th>`).join('')}` +
+    `<th colspan="2" class="plan-divisa matriz-total-col" style="text-align:center">TOTAL</th></tr>` +
+    `<tr>${colunas.map(m => `<th class="plan-divisa${m ? sel(m) : ''}">Marcia</th><th class="${m ? sel(m).trim() : ''}">Luciano</th>`).join('')}</tr>`;
+
+  const linhaCasa = (rotulo, itens, classe) => {
+    const celulas = colunas.map(m => ['marcia', 'luciano'].map((p, i) => {
+      const lista = itens.filter(g => g.pago_por === p && (!m || g.mes === m));
+      const cls = `tabular matriz-cell${i === 0 ? ' plan-divisa' : ''}${m ? sel(m) : ''}`;
+      if (!lista.length) return `<td class="${cls} vazia">—</td>`;
+      const idx = planCelulas.push({ titulo: `${rotulo} — ${p === 'marcia' ? 'Marcia' : 'Luciano'} pagou — ${m ? mesLabel(m + '-01') : ano}`, itens: lista }) - 1;
+      return `<td class="${cls}" ${planCel(soma(lista), idx)}</td>`;
+    }).join('')).join('');
+    return `<tr class="${classe || ''}"><td class="matriz-cat">${escapeHtml(rotulo)}</td>${celulas}</tr>`;
+  };
+
+  // Rodapé: uma célula ocupando as duas colunas do mês.
+  const rodape = (rotulo, fn, classe) =>
+    `<tr class="${classe || 'plan-rodape'}"><td class="matriz-cat">${rotulo}</td>${colunas.map(m =>
+      `<td colspan="2" class="tabular plan-divisa${m ? sel(m) : ' matriz-total-col'}" style="text-align:center">${fn(m)}</td>`).join('')}</tr>`;
+  const doMes = m => m ? todas.filter(g => g.mes === m) : todas;
+  const recebido = m => m ? recebimentosAcerto(m) : meses.reduce((s, x) => s + recebimentosAcerto(x), 0);
+  const saldo = m => { // positivo = Luciano deve pra Marcia
+    const l = doMes(m);
+    return soma(l.filter(g => g.pago_por === 'marcia')) - soma(l) / 2 - recebido(m);
+  };
+
+  document.getElementById('planCasaBody').innerHTML =
+    linhas.map(c => linhaCasa(c, todas.filter(g => planLinhaCasa(g.categoria) === c),
+      PLAN_CASA.includes(c) ? '' : 'plan-extra')).join('') +
+    linhaCasa('TOTAL PAGO POR PESSOA', todas, 'plan-total') +
+    rodape('TOTAL DO MÊS', m => doMes(m).length ? planNum(soma(doMes(m))) : '—') +
+    rodape('VALOR POR PESSOA', m => doMes(m).length ? planNum(soma(doMes(m)) / 2) : '—') +
+    rodape('DEPÓSITO (acerto recebido)', m => recebido(m) > 0.01 ? planNum(recebido(m)) : '—') +
+    rodape('TOTAL A ACERTAR', m => {
+      if (!doMes(m).length) return '—';
+      const s = saldo(m);
+      if (Math.abs(s) < 0.01) return 'quitado';
+      return `<span class="plan-deve">${s > 0 ? 'Luciano deve' : 'Marcia deve'} ${planNum(Math.abs(s))}</span>`;
+    }, 'plan-total');
+
+  renderStatusLuciano();
+  const s = saldo(orcMesAtual);
+  document.getElementById('lucianoAcaoRecebimento').innerHTML = doMes(orcMesAtual).length && s > 0.01
+    ? `<button type="button" class="btn-primary" style="width:auto;padding:9px 16px;margin-top:14px;" onclick="abrirRecebimentoLuciano(${s})">Registrar recebimento de ${brl(s)} (${mesLabel(orcMesAtual + '-01')})</button>`
+    : '';
 }
 
 function abrirLancamentosLista(titulo, sub, itens) {
@@ -4564,91 +4592,6 @@ function recebimentosAcerto(mes) {
   return DATA_ORC.lancamentos
     .filter(l => l.tipo === 'receita' && l.categoria === CATEGORIA_ACERTO_LUCIANO && l.data.slice(0, 7) === mes)
     .reduce((s, l) => s + Number(l.valor), 0);
-}
-
-// Saldo é calculado sobre TODO o histórico (não só o mês selecionado) — é uma
-// dívida que se acumula mês a mês, igual à lógica da planilha original.
-// O acerto é MENSAL, como na planilha (linhas 115-119: "TOTAL PAGO POR PESSOA",
-// "VALOR POR PESSOA", "TOTAL A PAGAR" são recalculados a cada mês). Mostrar o
-// acumulado do ano como resultado principal dava um número assustador e sem
-// sentido — soma de meses que já foram acertados.
-function renderLucianoPanel() {
-  const somar = lista => lista.reduce((s, l) => s + Number(l.valor), 0);
-  const todas = gastosCompartilhados();
-  const doMes = todas.filter(l => l.mes === orcMesAtual);
-  const totalMes = somar(doMes);
-  const pagoMarcia = somar(doMes.filter(l => l.pago_por === 'marcia'));
-  const pagoLuciano = somar(doMes.filter(l => l.pago_por === 'luciano'));
-  const metade = totalMes / 2;
-  const recebidoMes = recebimentosAcerto(orcMesAtual);
-  const saldoBruto = pagoMarcia - metade; // antes de descontar o que já foi recebido
-  const saldo = saldoBruto - recebidoMes; // positivo = Luciano ainda deve pra Marcia
-  const mesTxt = mesLabel(orcMesAtual + '-01');
-
-  document.getElementById('lucianoSummary').textContent = !doMes.length
-    ? `Nenhuma despesa compartilhada em ${mesTxt}`
-    : (Math.abs(saldo) < 0.01 ? `${mesTxt} · contas em dia`
-      : `${mesTxt} · ${saldo > 0 ? 'Luciano deve' : 'Marcia deve'} ${brl(Math.abs(saldo))}`);
-
-  // Acumulado do período todo — só faz sentido se nenhum mês foi acertado ainda.
-  const acumulado = somar(todas.filter(l => l.pago_por === 'marcia')) - somar(todas) / 2;
-
-  const statRecebido = recebidoMes > 0.01
-    ? `<div class="ta-stat"><div class="ta-label">Já recebido de acerto em ${mesTxt}</div><div class="ta-value tabular" style="color:var(--good)">${brl(recebidoMes)}</div></div>`
-    : '';
-  const botaoReceber = saldo > 0.01
-    ? `<button type="button" class="btn-primary" style="width:auto;padding:9px 16px;margin-top:14px;" onclick="abrirRecebimentoLuciano(${saldo})">Registrar recebimento de ${brl(saldo)}</button>`
-    : '';
-
-  document.getElementById('lucianoStats').innerHTML = `
-    <div class="ta-stat"><div class="ta-label">Compartilhado em ${mesTxt}</div><div class="ta-value tabular">${brl(totalMes)}</div></div>
-    <div class="ta-stat"><div class="ta-label">Pago por Marcia</div><div class="ta-value tabular">${brl(pagoMarcia)}</div></div>
-    <div class="ta-stat"><div class="ta-label">Pago por Luciano</div><div class="ta-value tabular">${brl(pagoLuciano)}</div></div>
-    <div class="ta-stat"><div class="ta-label">Cota de cada um (50%)</div><div class="ta-value tabular">${brl(metade)}</div></div>
-    ${statRecebido}
-    <div class="ta-stat" style="border-color:color-mix(in srgb, var(--series-1) 45%, var(--border))">
-      <div class="ta-label">${saldo >= 0 ? 'Luciano ainda deve' : 'Marcia deve a mais'}</div>
-      <div class="ta-value tabular" style="color:var(--series-1)">${brl(Math.abs(saldo))}</div>
-    </div>
-  `;
-  document.getElementById('lucianoAcaoRecebimento').innerHTML = botaoReceber;
-
-  document.getElementById('lucianoAcumulado').textContent =
-    `O total soma todos os meses sem descontar acertos já feitos — ${brl(Math.abs(acumulado))}. ` +
-    `Só vale como referência se nada foi acertado ainda; fechando mês a mês, o que conta é a linha do mês.`;
-
-  renderLucianoMeses(todas);
-  renderStatusLuciano();
-
-  lucianoDoMesAtual = doMes; // guardado pra setLucianoFiltro() não precisar recalcular tudo
-  renderLucianoLista();
-}
-
-// Filtro Geral/Marcia/Luciano na lista de despesas compartilhadas do mês —
-// só reordena a exibição, não mexe em nenhum total do painel.
-let lucianoFiltro = 'geral';
-let lucianoDoMesAtual = [];
-
-function setLucianoFiltro(filtro) {
-  lucianoFiltro = filtro;
-  document.getElementById('lucianoFiltroGeral').classList.toggle('active', filtro === 'geral');
-  document.getElementById('lucianoFiltroMarcia').classList.toggle('active', filtro === 'marcia');
-  document.getElementById('lucianoFiltroLuciano').classList.toggle('active', filtro === 'luciano');
-  renderLucianoLista();
-}
-
-function renderLucianoLista() {
-  const lista = document.getElementById('lucianoLista');
-  if (!lista) return;
-  const filtrado = lucianoFiltro === 'geral' ? lucianoDoMesAtual : lucianoDoMesAtual.filter(l => l.pago_por === lucianoFiltro);
-  lista.innerHTML = !filtrado.length
-    ? `<div class="op-vazio">Nenhuma despesa ${lucianoFiltro === 'geral' ? 'compartilhada' : `paga por ${lucianoFiltro === 'marcia' ? 'Marcia' : 'Luciano'}`} neste mês.</div>`
-    : [...filtrado].sort((a, b) => String(b.data).localeCompare(String(a.data))).map(l => `
-    <div class="op-row">
-      <div>${escapeHtml(l.categoria)}${l.descricao ? ' · ' + escapeHtml(l.descricao) : ''} <span class="orc-chip">${l.pago_por === 'luciano' ? 'Luciano' : 'Marcia'} pagou</span></div>
-      <div class="tabular">${brl(Number(l.valor))}</div>
-    </div>
-  `).join('');
 }
 
 // Deixa explícito se o painel está vendo os dois lados ou só o dela — sem isso
@@ -4707,41 +4650,6 @@ function gastosCompartilhados() {
         .map(l => ({ mes: String(l.data).slice(0, 7), data: l.data, categoria: l.categoria,
                      descricao: l.descricao, valor: Number(l.valor), pago_por: 'luciano' }));
   return [...dela, ...dele];
-}
-
-// Tabela de todos os meses + total, pra ela não precisar trocar o filtro do topo
-// só pra conferir outro mês. Clicar numa linha muda o mês selecionado da aba.
-function renderLucianoMeses(compart) {
-  const tbody = document.getElementById('lucianoMesesBody');
-  if (!tbody) return;
-  const somar = lista => lista.reduce((s, l) => s + Number(l.valor), 0);
-  const meses = [...new Set(compart.map(l => l.mes))].sort();
-  if (!meses.length) { tbody.innerHTML = '<tr><td colspan="6" class="orc-empty">Nenhuma despesa compartilhada lançada.</td></tr>'; return; }
-
-  const linhas = meses.map(m => {
-    const doMes = compart.filter(l => l.mes === m);
-    const total = somar(doMes);
-    const pm = somar(doMes.filter(l => l.pago_por === 'marcia'));
-    const pl = somar(doMes.filter(l => l.pago_por === 'luciano'));
-    const recebido = recebimentosAcerto(m);
-    return { mes: m, total, pm, pl, recebido, deve: pm - total / 2 - recebido };
-  });
-  const tot = linhas.reduce((a, l) => ({
-    total: a.total + l.total, pm: a.pm + l.pm, pl: a.pl + l.pl, recebido: a.recebido + l.recebido, deve: a.deve + l.deve,
-  }), { total: 0, pm: 0, pl: 0, recebido: 0, deve: 0 });
-
-  const cel = v => `<td class="tabular">${brl(v)}</td>`;
-  tbody.innerHTML = linhas.map(l => `
-    <tr class="orc-row-click${l.mes === orcMesAtual ? ' luciano-mes-atual' : ''}" onclick="irParaMes('${l.mes}')">
-      <td class="ticker-name">${mesLabel(l.mes + '-01')}</td>
-      ${cel(l.total)}${cel(l.pm)}${cel(l.pl)}
-      <td class="tabular"${l.recebido > 0.01 ? ' style="color:var(--good)"' : ''}>${l.recebido > 0.01 ? brl(l.recebido) : '—'}</td>
-      <td class="tabular" style="color:var(--series-1);font-weight:600">${Math.abs(l.deve) < 0.01 ? 'quitado' : brl(Math.abs(l.deve))}</td>
-    </tr>`).join('') + `
-    <tr class="totals-row">
-      <td>Total do período</td>${cel(tot.total)}${cel(tot.pm)}${cel(tot.pl)}${cel(tot.recebido)}
-      <td class="tabular">${brl(Math.abs(tot.deve))}</td>
-    </tr>`;
 }
 
 // Pré-preenche o formulário como receita, categoria convencionada, valor e mês
@@ -5323,7 +5231,8 @@ function renderPendentesEEmpresa() {
   const el = document.getElementById('orcForaDosTotais');
   if (!el || !DATA_ORC) return;
   const pend = DATA_ORC.pendentes || [];
-  const emp = (DATA_ORC.empresa || []).filter(l => !l.reembolsado_em);
+  // Só gastos: o PAYTRACK (reembolso recebido) também é "empresa", mas é receita.
+  const emp = (DATA_ORC.empresa || []).filter(l => l.tipo === 'despesa' && !l.reembolsado_em);
   const somaPend = pend.reduce((s, l) => s + Number(l.valor), 0);
   const somaEmp = emp.reduce((s, l) => s + Number(l.valor), 0);
   if (!pend.length && !emp.length) { el.style.display = 'none'; el.innerHTML = ''; return; }
@@ -5340,7 +5249,7 @@ function renderPendentesEEmpresa() {
       '<strong>' + brl(somaEmp) + ' a receber da empresa</strong> · ' + emp.length + ' lançamento(s)' +
       ' <span class="conf-nota">— gasto reembolsável, fora do seu orçamento</span>' +
       ' <button class="row-action" onclick="abrirLancamentosLista(\'A receber da empresa\', \'' +
-        emp.length + ' lançamento(s) · ' + brl(somaEmp) + '\', DATA_ORC.empresa.filter(l => !l.reembolsado_em))">ver</button>' +
+        emp.length + ' lançamento(s) · ' + brl(somaEmp) + '\', DATA_ORC.empresa.filter(l => l.tipo === \x27despesa\x27 && !l.reembolsado_em))">ver</button>' +
     '</div>' : '');
 }
 checkSession();
