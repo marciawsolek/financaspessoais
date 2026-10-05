@@ -3895,13 +3895,28 @@ async function loadOrcamentoData() {
   }
 }
 
+// Meses que têm pelo menos um lançamento.
+function orcMesesComDados() {
+  return [...new Set(DATA_ORC.lancamentos.map(l => l.data.slice(0, 7)))].sort();
+}
+
+// Calendário completo (jan–dez) de cada ano com lançamento + o ano corrente —
+// os meses que ainda vão chegar já aparecem no seletor, no gráfico e na matriz,
+// prontos pra receber lançamentos, em vez de só surgirem depois do 1º lançamento.
+function orcMesesCalendario() {
+  const anos = new Set(orcMesesComDados().map(m => m.slice(0, 4)));
+  anos.add(new Date().toISOString().slice(0, 4));
+  return [...anos].sort().flatMap(a => MESES.map((_, i) => `${a}-${String(i + 1).padStart(2, '0')}`));
+}
+
 function popularMesesOrcamento() {
-  let meses = [...new Set(DATA_ORC.lancamentos.map(l => l.data.slice(0, 7)))].sort();
-  if (!meses.length) meses = [new Date().toISOString().slice(0, 7)];
+  const comDados = orcMesesComDados();
+  const meses = orcMesesCalendario();
   const sel = document.getElementById('orcMesSelect');
-  sel.innerHTML = meses.map(m => `<option value="${m}">${mesLabel(m + '-01')}</option>`).join('');
+  sel.innerHTML = meses.map(m => `<option value="${m}">${mesLabel(m + '-01')}${comDados.includes(m) ? '' : ' · vazio'}</option>`).join('');
   const manterAtual = orcMesAtual && meses.includes(orcMesAtual);
-  orcMesAtual = manterAtual ? orcMesAtual : meses[meses.length - 1];
+  // Abre no último mês com lançamento (não num dezembro vazio).
+  orcMesAtual = manterAtual ? orcMesAtual : (comDados[comDados.length - 1] || new Date().toISOString().slice(0, 7));
   sel.value = orcMesAtual;
 }
 
@@ -3962,8 +3977,9 @@ function renderOrcamento() {
 
   const serie = orcSerieMensal();
   const i = serie.findIndex(s => s.mes === orcMesAtual);
-  const atual = serie[i] || { receita: 0, despesa: 0, saldo: 0 };
-  const anterior = i > 0 ? serie[i - 1] : null;
+  const atual = serie[i] || { receita: 0, despesa: 0, saldo: 0, vazio: true };
+  // Compara com o último mês que TEM lançamento — um mês vazio no meio não é base.
+  const anterior = serie.slice(0, Math.max(i, 0)).reverse().find(s => !s.vazio) || null;
 
   // Mês corrente ainda está recebendo lançamentos — sem esse aviso, um saldo
   // parcial (ex: só o vale-refeição lançado) passa por resultado fechado.
@@ -3979,14 +3995,15 @@ function renderOrcamento() {
   }
 
   const saldoEl = document.getElementById('orcSaldoValue');
-  saldoEl.textContent = brl(atual.saldo);
-  saldoEl.style.color = atual.saldo >= 0 ? 'var(--good)' : 'var(--status-critical)';
-  document.getElementById('orcReceitaValue').textContent = brl(atual.receita);
-  document.getElementById('orcDespesaValue').textContent = brl(atual.despesa);
+  saldoEl.textContent = atual.vazio ? '—' : brl(atual.saldo);
+  saldoEl.style.color = atual.vazio ? '' : (atual.saldo >= 0 ? 'var(--good)' : 'var(--status-critical)');
+  document.getElementById('orcReceitaValue').textContent = atual.vazio ? '—' : brl(atual.receita);
+  document.getElementById('orcDespesaValue').textContent = atual.vazio ? '—' : brl(atual.despesa);
 
   // Delta vs mês anterior — para despesa, gastar menos é a direção boa (invertida).
   const delta = (campo, menorEhMelhor) => {
     const el = document.getElementById(campo.el);
+    if (atual.vazio) { el.textContent = 'sem lançamentos ainda'; el.style.color = ''; return; }
     if (!anterior) { el.textContent = 'primeiro mês do histórico'; el.style.color = ''; return; }
     const d = atual[campo.k] - anterior[campo.k];
     if (Math.abs(d) < 0.01) { el.textContent = 'igual ao mês anterior'; el.style.color = ''; return; }
@@ -4008,13 +4025,14 @@ function renderOrcamento() {
 }
 
 /* ---- helpers de gráfico ---- */
+// `vazio` = mês do calendário sem nenhum lançamento: o gráfico deixa o espaço
+// em branco e as tabelas mostram "—", pra não parecer um mês fechado em zero.
 function orcSerieMensal() {
-  const meses = [...new Set(DATA_ORC.lancamentos.map(l => l.data.slice(0, 7)))].sort();
-  return meses.map(m => {
+  return orcMesesCalendario().map(m => {
     const l = lancamentosDoMes(m);
     const receita = l.filter(x => x.tipo === 'receita').reduce((s, x) => s + Number(x.valor), 0);
     const despesa = l.filter(x => x.tipo === 'despesa').reduce((s, x) => s + Number(x.valor), 0);
-    return { mes: m, receita, despesa, saldo: receita - despesa };
+    return { mes: m, receita, despesa, saldo: receita - despesa, vazio: !l.length };
   });
 }
 
@@ -4109,6 +4127,7 @@ function renderOrcChart(serie) {
   const gapPar = 2;
 
   const colunas = serie.map((s, i) => {
+    if (s.vazio) return '';
     const centro = padL + banda * i + banda / 2;
     const xR = centro - larguraBarra - gapPar / 2;
     const xD = centro + gapPar / 2;
@@ -4124,6 +4143,7 @@ function renderOrcChart(serie) {
   const hSaldoBarra = v => (Math.abs(v) / maxSaldo) * (hSaldo / 2 - 10);
   const larguraSaldo = Math.min(24, Math.max(6, banda - 16));
   const barrasSaldo = serie.map((s, i) => {
+    if (s.vazio) return '';
     const centro = padL + banda * i + banda / 2;
     const h = hSaldoBarra(s.saldo);
     const pos = s.saldo >= 0;
@@ -4181,8 +4201,9 @@ function attachOrcChartHover(serie) {
     if (!s) return;
     const linha = (cor, rotulo, valor) =>
       `<div class="orc-tt-row"><span class="orc-tt-key" style="background:${cor}"></span>${rotulo}: <strong>${brl(valor)}</strong></div>`;
-    tooltip.innerHTML =
-      `<div class="orc-tt-titulo">${mesLabel(s.mes + '-01')}</div>` +
+    tooltip.innerHTML = s.vazio
+      ? `<div class="orc-tt-titulo">${mesLabel(s.mes + '-01')}</div><div class="orc-tt-row">Sem lançamentos ainda</div>`
+      : `<div class="orc-tt-titulo">${mesLabel(s.mes + '-01')}</div>` +
       linha(ORC_COR_RECEITA, 'Receita', s.receita) +
       linha(ORC_COR_DESPESA, 'Despesa', s.despesa) +
       linha(s.saldo >= 0 ? 'var(--good)' : 'var(--status-critical)', 'Saldo', s.saldo);
@@ -4212,7 +4233,8 @@ function renderOrcChartTabela(serie) {
   el.innerHTML = `
     <table>
       <thead><tr><th>Mês</th><th>Receita</th><th>Despesa</th><th>Saldo</th></tr></thead>
-      <tbody>${serie.map(s => `
+      <tbody>${serie.map(s => s.vazio ? `
+        <tr><td>${mesLabel(s.mes + '-01')}</td><td class="tabular">—</td><td class="tabular">—</td><td class="tabular">—</td></tr>` : `
         <tr>
           <td>${mesLabel(s.mes + '-01')}</td>
           <td class="tabular">${brl(s.receita)}</td>
@@ -4423,15 +4445,16 @@ function renderMatrizAno() {
 
   const keyFn = orcAnoModo === 'grupo' ? (l => l.grupo || 'Sem grupo') : (l => l.categoria);
   const lanc = DATA_ORC.lancamentos;
-  const meses = [...new Set(lanc.map(l => l.data.slice(0, 7)))].sort();
+  const comDados = orcMesesComDados();
+  const meses = orcMesesCalendario(); // jan–dez inteiro; meses futuros já com coluna
 
   const periodoEl = document.getElementById('orcAnoPeriodo');
   if (periodoEl) {
-    periodoEl.textContent = meses.length
-      ? `${mesLabel(meses[0] + '-01')} a ${mesLabel(meses[meses.length - 1] + '-01')} (${meses.length} ${meses.length === 1 ? 'mês' : 'meses'})`
+    periodoEl.textContent = comDados.length
+      ? `${mesLabel(comDados[0] + '-01')} a ${mesLabel(comDados[comDados.length - 1] + '-01')} (${comDados.length} ${comDados.length === 1 ? 'mês' : 'meses'} com lançamentos)`
       : 'Sem lançamentos ainda';
   }
-  if (!meses.length) {
+  if (!comDados.length) {
     headEl.innerHTML = '';
     bodyEl.innerHTML = '<tr><td class="orc-empty">Nenhum lançamento ainda.</td></tr>';
     orcMatrizLinhas = [];
@@ -4439,7 +4462,7 @@ function renderMatrizAno() {
   }
 
   headEl.innerHTML = `<th class="matriz-cat">${orcAnoModo === 'grupo' ? 'Grupo' : 'Categoria'}</th>` +
-    meses.map(m => `<th>${mesLabel(m + '-01')}</th>`).join('') +
+    meses.map(m => `<th${comDados.includes(m) ? '' : ' style="color:var(--text-muted);font-weight:400"'}>${mesLabel(m + '-01')}</th>`).join('') +
     `<th class="matriz-total-col">Total</th>`;
 
   orcMatrizLinhas = [];
@@ -4492,7 +4515,7 @@ function renderMatrizAno() {
       ${trs}
       <tr class="matriz-subtotal">
         <td class="matriz-cat">Total de ${bloco.titulo.toLowerCase()}</td>
-        ${meses.map(m => `<td class="tabular">${brl(totalPorMes[m])}</td>`).join('')}
+        ${meses.map(m => `<td class="tabular">${comDados.includes(m) ? brl(totalPorMes[m]) : '—'}</td>`).join('')}
         <td class="tabular matriz-total-col">${brl(totalBloco)}</td>
       </tr>`;
   }).join('');
