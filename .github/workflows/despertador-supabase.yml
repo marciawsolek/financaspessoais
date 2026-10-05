@@ -1,0 +1,36 @@
+# Despertador do banco: o Supabase gratuito pausa o projeto depois de ~7 dias
+# sem uso. A cada 3 dias isto faz uma consulta leve ao banco pra contar como uso.
+# Se o banco não responder, a execução falha e o GitHub manda e-mail avisando.
+name: Despertador do Supabase
+
+on:
+  schedule:
+    - cron: '0 12 */3 * *'   # a cada 3 dias, 9h de Brasília
+  workflow_dispatch:          # botão "Run workflow" pra rodar na hora
+
+permissions:
+  actions: write              # pra se reativar sozinho (ver último passo)
+
+jobs:
+  acordar:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Consultar o banco
+        run: |
+          # Chave pública (a mesma do index.html); com RLS a resposta vem vazia,
+          # mas a consulta chega ao Postgres e conta como atividade.
+          codigo=$(curl -s -o resposta.txt -w '%{http_code}' --max-time 60 \
+            "https://hqkdmswodfafvkoscesk.supabase.co/rest/v1/metas?select=id&limit=1" \
+            -H "apikey: sb_publishable_lOfDVUOAsxEYDmCndl_QIA_-ukvWVFE")
+          echo "HTTP $codigo"; cat resposta.txt; echo
+          if [ "$codigo" != "200" ]; then
+            echo "::error::Banco não respondeu (HTTP $codigo). Ver se o projeto foi pausado em supabase.com/dashboard."
+            exit 1
+          fi
+
+      - name: Manter o despertador ligado
+        # O GitHub desliga agendamentos de repositórios sem commits há 60 dias;
+        # reativar o próprio workflow zera essa contagem.
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh api -X PUT "repos/${{ github.repository }}/actions/workflows/despertador-supabase.yml/enable"
