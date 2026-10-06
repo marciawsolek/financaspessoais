@@ -3854,9 +3854,13 @@ async function loadOrcamentoData() {
     // nos totais do orçamento — pendente porque ainda não foi classificado, e
     // empresa porque é dinheiro que sai e volta, não despesa dela. Separo aqui
     // na origem pra nenhuma das somas lá na frente precisar saber disso.
+    // "SÓ LUCIANO" = ela pagou algo que é só dele (ex: assinatura dele no cartão
+    // dela): não é despesa dela nem se divide — entra 100% no que ele deve.
     const todos = data || [];
+    const ehSoLuciano = l => l.categoria === CATEGORIA_SO_LUCIANO && l.status !== 'pendente';
     DATA_ORC = {
-      lancamentos: todos.filter(l => l.status !== 'pendente' && l.alocacao !== 'empresa'),
+      soLuciano:   todos.filter(ehSoLuciano),
+      lancamentos: todos.filter(l => l.status !== 'pendente' && l.alocacao !== 'empresa' && !ehSoLuciano(l)),
       pendentes:   todos.filter(l => l.status === 'pendente'),
       empresa:     todos.filter(l => l.alocacao === 'empresa' && l.status !== 'pendente'),
       gastosLuciano: [], statusLuciano: null,
@@ -3912,7 +3916,7 @@ function popularMesesOrcamento() {
 // Sugestões = as linhas da planilha (títulos, PAIS, casa dividida e receitas),
 // pra o lançamento já cair na linha certa.
 function popularCategoriasDatalist() {
-  const cats = [...new Set([...PLAN_TITULOS, ...PLAN_PAIS, ...PLAN_CASA, ...PLAN_RECEITAS, CATEGORIA_ACERTO_LUCIANO])];
+  const cats = [...new Set([...PLAN_TITULOS, ...PLAN_PAIS, ...PLAN_CASA, ...PLAN_RECEITAS, CATEGORIA_ACERTO_LUCIANO, CATEGORIA_SO_LUCIANO])];
   document.getElementById('orcCategoriasList').innerHTML = cats.map(c => `<option value="${escapeHtml(c)}">`).join('');
 }
 
@@ -4529,8 +4533,15 @@ function renderPlanilhaCasa(ano, meses, sel) {
   const recebido = m => m ? recebimentosAcerto(m) : meses.reduce((s, x) => s + recebimentosAcerto(x), 0);
   const saldo = m => { // positivo = Luciano deve pra Marcia
     const l = doMes(m);
-    return soma(l.filter(g => g.pago_por === 'marcia')) - soma(l) / 2 - recebido(m);
+    return soma(l.filter(g => g.pago_por === 'marcia')) - soma(l) / 2 + soLuc(m).total - recebido(m);
   };
+  // Pago por ela mas só do Luciano: soma 100% no que ele deve (linha própria).
+  const soLucAno = (DATA_ORC.soLuciano || []).filter(l => String(l.data).startsWith(ano));
+  function soLuc(m) {
+    const itens = m ? soLucAno.filter(l => String(l.data).slice(0, 7) === m) : soLucAno;
+    return { itens, total: itens.reduce((s, l) => s + Number(l.valor), 0) };
+  }
+  const temAcerto = m => doMes(m).length || soLuc(m).itens.length;
 
   document.getElementById('planCasaBody').innerHTML =
     linhas.map(c => linhaCasa(c, todas.filter(g => planLinhaCasa(g.categoria) === c),
@@ -4538,9 +4549,15 @@ function renderPlanilhaCasa(ano, meses, sel) {
     linhaCasa('TOTAL PAGO POR PESSOA', todas, 'plan-total') +
     rodape('TOTAL DO MÊS', m => doMes(m).length ? planNum(soma(doMes(m))) : '—') +
     rodape('VALOR POR PESSOA', m => doMes(m).length ? planNum(soma(doMes(m)) / 2) : '—') +
+    rodape('SÓ DO LUCIANO (você pagou)', m => {
+      const { itens, total } = soLuc(m);
+      if (!itens.length) return '—';
+      const idx = planCelulas.push({ titulo: `Só do Luciano, pago por você — ${m ? mesLabel(m + '-01') : ano}`, itens }) - 1;
+      return `<button type="button" class="link-btn" title="${brl(total)}" onclick="planAbrir(${idx})">${planNum(total)}</button>`;
+    }) +
     rodape('DEPÓSITO (acerto recebido)', m => recebido(m) > 0.01 ? planNum(recebido(m)) : '—') +
     rodape('TOTAL A ACERTAR', m => {
-      if (!doMes(m).length) return '—';
+      if (!temAcerto(m)) return '—';
       const s = saldo(m);
       if (Math.abs(s) < 0.01) return 'quitado';
       return `<span class="plan-deve">${s > 0 ? 'Luciano deve' : 'Marcia deve'} ${planNum(Math.abs(s))}</span>`;
@@ -4548,7 +4565,7 @@ function renderPlanilhaCasa(ano, meses, sel) {
 
   renderStatusLuciano();
   const s = saldo(orcMesAtual);
-  document.getElementById('lucianoAcaoRecebimento').innerHTML = doMes(orcMesAtual).length && s > 0.01
+  document.getElementById('lucianoAcaoRecebimento').innerHTML = temAcerto(orcMesAtual) && s > 0.01
     ? `<button type="button" class="btn-primary" style="width:auto;padding:9px 16px;margin-top:14px;" onclick="abrirRecebimentoLuciano(${s})">Registrar recebimento de ${brl(s)} (${mesLabel(orcMesAtual + '-01')})</button>`
     : '';
 }
@@ -4582,6 +4599,7 @@ function fecharLancamentos() {
 // Luciano (Pix, transferência etc.) — vira receita normal, e aqui é descontada
 // do saldo devedor pra ele não ficar "devendo" pra sempre depois de já ter pago.
 const CATEGORIA_ACERTO_LUCIANO = 'Acerto Luciano';
+const CATEGORIA_SO_LUCIANO = 'SÓ LUCIANO';
 function recebimentosAcerto(mes) {
   return DATA_ORC.lancamentos
     .filter(l => l.tipo === 'receita' && l.categoria === CATEGORIA_ACERTO_LUCIANO && l.data.slice(0, 7) === mes)
@@ -4696,7 +4714,8 @@ async function salvarLancamento(event) {
   const grupo = document.getElementById('orcGrupo').value || null;
   const valor = parseFloat(document.getElementById('orcValor').value);
   const descricao = document.getElementById('orcDescricao').value.trim() || null;
-  const compartilhado = tipo === 'despesa' && orcCompartilhado;
+  // SÓ LUCIANO nunca é dividido: senão iria pro feed do Luciano como 50/50.
+  const compartilhado = tipo === 'despesa' && orcCompartilhado && categoria !== CATEGORIA_SO_LUCIANO;
   // Neste sistema só entra o que a Marcia pagou. O que o Luciano paga vive no
   // sistema dele e chega pelo feed — gravar aqui contaria a mesma despesa duas vezes.
   const pagoPor = compartilhado ? 'marcia' : null;
@@ -4741,7 +4760,7 @@ async function salvarLancamento(event) {
 // Editar = o mesmo formulário, pré-preenchido; salvar faz update em vez de insert.
 let orcEditando = null;
 function editarLancamento(id) {
-  const todos = [...DATA_ORC.lancamentos, ...(DATA_ORC.pendentes || []), ...(DATA_ORC.empresa || [])];
+  const todos = [...DATA_ORC.lancamentos, ...(DATA_ORC.pendentes || []), ...(DATA_ORC.empresa || []), ...(DATA_ORC.soLuciano || [])];
   const l = todos.find(x => x.id === id);
   if (!l) return;
   orcEditando = l;
@@ -4954,7 +4973,7 @@ const GRUPO_CASA_DIVIDIDA = 'CASA DIVIDIDA (Luciano)';
 const TAXONOMIA = {
   ...Object.fromEntries(PLAN_TITULOS.map(t => [t, []])),
   'PAIS': PLAN_PAIS,
-  [GRUPO_CASA_DIVIDIDA]: PLAN_CASA,
+  [GRUPO_CASA_DIVIDIDA]: [...PLAN_CASA, 'SÓ LUCIANO'],
 };
 
 function grupoDaSubcategoria(sub) {
@@ -5239,7 +5258,9 @@ function confSetAlocacao(i, valor) {
 
 // Item da casa dividida => alocação Casa; título pessoal tira de Casa (Empresa fica).
 function confSyncAlocacao(l) {
-  if (l.grupo === GRUPO_CASA_DIVIDIDA) l.alocacao = 'casa';
+  // SÓ LUCIANO não é dividido: senão iria pro feed dele como 50/50.
+  if (l.categoria === CATEGORIA_SO_LUCIANO) l.alocacao = 'pessoal';
+  else if (l.grupo === GRUPO_CASA_DIVIDIDA) l.alocacao = 'casa';
   else if (l.alocacao === 'casa') l.alocacao = 'pessoal';
 }
 function confSetCategoria(i, valor) {
