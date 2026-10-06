@@ -4341,11 +4341,13 @@ function abrirLancamentosRanking(i) {
    numa linha pelo nome da categoria (sem acento/caixa/pontuação), com apelidos
    para os nomes da tela de conferência de fatura. O que não casar com nenhuma
    linha aparece numa linha própria, em itálico — nunca some do total. */
-// Receitas em 3 linhas (out/2026, decisão dela). EMPRESA soma o que vinha do
-// trabalho; o que não for EMPRESA nem PROVENTOS cai em OUTROS.
-const PLAN_RECEITAS = ['EMPRESA', 'PROVENTOS', 'OUTROS'];
+// Receitas em poucas linhas (out/2026, decisão dela). EMPRESA soma o que vinha
+// do trabalho; o que não for EMPRESA, PROVENTOS nem RESCISÃO cai em OUTROS.
+// RESCISÃO fica separada (dinheiro pontual, não renda do mês) e só aparece
+// no ano em que existir.
+const PLAN_RECEITAS = ['EMPRESA', 'PROVENTOS', 'RESCISÃO', 'OUTROS'];
 const PLAN_REC_EMPRESA = ['EMPRESA', 'SALARIO 15', 'SALARIO 05', 'SALARIO', 'PREMIO',
-  '13° /PLR/FERIAS/PREMIAÇOES', 'I FOOD (29)', 'IFOOD', 'RESCISÃO'];
+  '13° /PLR/FERIAS/PREMIAÇOES', 'I FOOD (29)', 'IFOOD'];
 
 // Minhas despesas: só títulos (out/2026, decisão dela). PAIS e a casa dividida
 // com o Luciano continuam com os subitens da planilha.
@@ -4400,6 +4402,7 @@ const PLAN_IDX = (() => {
   const rec = {};
   PLAN_REC_EMPRESA.forEach(r => { rec[planNorm(r)] = 'EMPRESA'; });
   rec.PROVENTOS = 'PROVENTOS';
+  rec[planNorm('RESCISÃO')] = 'RESCISÃO';
   return { titulo, pais, casa, rec };
 })();
 
@@ -4469,7 +4472,9 @@ function renderPlanilhaOrcamento() {
   const paytrack = (DATA_ORC.empresa || []).filter(l => l.tipo === 'receita' && String(l.data).startsWith(ano));
   document.getElementById('planRecHead').innerHTML = cab;
   document.getElementById('planRecBody').innerHTML =
-    PLAN_RECEITAS.map(r => linha(r, receitas.filter(l => planLinhaReceita(l) === r))).join('') +
+    PLAN_RECEITAS.map(r => [r, receitas.filter(l => planLinhaReceita(l) === r)])
+      .filter(([r, itens]) => r !== 'RESCISÃO' || itens.length)
+      .map(([r, itens]) => linha(r, itens)).join('') +
     linha('TOTAL', receitas, 'plan-total', 'Receitas') +
     linha('PAYTRACK', paytrack, 'plan-rodape', 'PAYTRACK (reembolso Sun Pharma, fora do total)');
 
