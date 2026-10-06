@@ -4446,6 +4446,13 @@ function planLinhaPessoal(l) {
   if (n === 'PAIS' || planNorm(l.grupo) === 'PAIS') return { pai: 'PAIS', filho: String(l.categoria || '').toUpperCase() };
   return { pai: PLAN_IDX.titulo[n] || PLAN_IDX.titulo[planNorm(l.grupo)] || 'OUTROS', filho: null };
 }
+// Categorias do sistema do Luciano que significam outra coisa na planilha dela.
+// Só valem pro que ELE pagou: o OUTROS dela continua OUTROS (decisão dela, 07/out:
+// o "Outros" dele, 350/mês, é manutenção da casa).
+const PLAN_APELIDO_LUCIANO = { OUTROS: 'MANUTENÇÃO CASA' };
+function planLinhaCasaDe(g) {
+  return (g.pago_por === 'luciano' && PLAN_APELIDO_LUCIANO[planNorm(g.categoria)]) || planLinhaCasa(g.categoria);
+}
 function planLinhaCasa(categoria) {
   return PLAN_IDX.casa[planNorm(categoria)] || String(categoria || 'Sem categoria').toUpperCase();
 }
@@ -4551,7 +4558,7 @@ function renderPlanilhaOrcamento() {
 function renderPlanilhaCasa(ano, meses, sel) {
   const todas = gastosCompartilhados().filter(g => String(g.mes).startsWith(ano));
   const linhas = [...PLAN_CASA];
-  todas.forEach(g => { const c = planLinhaCasa(g.categoria); if (!linhas.includes(c)) linhas.push(c); });
+  todas.forEach(g => { const c = planLinhaCasaDe(g); if (!linhas.includes(c)) linhas.push(c); });
   const soma = lista => lista.reduce((s, g) => s + Number(g.valor), 0);
   const colunas = [...meses, null]; // null = coluna TOTAL do ano
 
@@ -4591,7 +4598,7 @@ function renderPlanilhaCasa(ano, meses, sel) {
   const temAcerto = m => doMes(m).length || soLuc(m).itens.length;
 
   document.getElementById('planCasaBody').innerHTML =
-    linhas.map(c => linhaCasa(c, todas.filter(g => planLinhaCasa(g.categoria) === c),
+    linhas.map(c => linhaCasa(c, todas.filter(g => planLinhaCasaDe(g) === c),
       PLAN_CASA.includes(c) ? '' : 'plan-extra')).join('') +
     linhaCasa('TOTAL PAGO POR PESSOA', todas, 'plan-total') +
     rodape('TOTAL DO MÊS', m => doMes(m).length ? planNum(soma(doMes(m))) : '—') +
