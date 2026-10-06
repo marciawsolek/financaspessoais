@@ -5049,6 +5049,32 @@ function pdfDataDoLancamento(tx, vencimento) {
 // subitem, exceto PAIS e a casa dividida com o Luciano, que mantêm os subitens
 // da planilha. Escolher um item da casa dividida já marca a linha como Casa.
 const GRUPO_CASA_DIVIDIDA = 'CASA DIVIDIDA (Luciano)';
+
+// Cobranças que sempre são de mais de um dono e chegam numa linha só na fatura.
+// Partes com valor fixo saem primeiro; a parte "resto" fica com a diferença.
+// Se a cobrança for menor que as partes fixas (mudou o plano), não divide —
+// a linha fica inteira pra ela classificar.
+const REGRAS_DIVISAO_FATURA = [
+  { padrao: /netflix/i, partes: [
+    { categoria: 'NETFLIX PAIS', grupo: 'PAIS', alocacao: 'pessoal', valor: 12.90, rotulo: 'parte dos pais' },
+    { categoria: 'NETFLIX', grupo: GRUPO_CASA_DIVIDIDA, alocacao: 'casa', resto: true, rotulo: 'parte da casa' },
+  ] },
+];
+function aplicarRegrasDivisao(linhas) {
+  const saida = [];
+  for (const l of linhas) {
+    const regra = REGRAS_DIVISAO_FATURA.find(r => r.padrao.test(l.descricao));
+    const fixo = regra ? regra.partes.filter(p => !p.resto).reduce((s, p) => s + p.valor, 0) : 0;
+    if (!regra || l.valor <= fixo + 0.005) { saida.push(l); continue; }
+    for (const p of regra.partes) {
+      const valor = p.resto ? Math.round((l.valor - fixo) * 100) / 100 : p.valor;
+      saida.push({ ...l, valor, categoria: p.categoria, grupo: p.grupo, alocacao: p.alocacao,
+                   descricao: `${l.descricao} (${p.rotulo}, de ${brl(l.valor)})`,
+                   origemPalpite: 'divisão automática', pendente: false });
+    }
+  }
+  return saida.map((l, i) => ({ ...l, i }));
+}
 const TAXONOMIA = {
   ...Object.fromEntries(PLAN_TITULOS.map(t => [t, []])),
   'PAIS': PLAN_PAIS_DESPESAS,
@@ -5223,6 +5249,7 @@ async function lerFaturaPdf(event) {
         duplicata: possivelDuplicata(d ? d.data : r.vencimento, tx.valor),
       };
     });
+    confLinhas = aplicarRegrasDivisao(confLinhas);
 
     statusEl.textContent = '';
     renderConferencia();
