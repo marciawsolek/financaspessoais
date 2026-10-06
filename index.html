@@ -1072,16 +1072,16 @@
         <div class="section-head collapsible" onclick="toggleSection('conf')">
           <div class="section-title-wrap">
             <h2>Conferir fatura do cartão</h2>
-            <span class="section-summary">Suba o PDF, classifique linha a linha, depois grave</span>
+            <span class="section-summary">Suba o PDF ou o Excel da fatura, classifique linha a linha, depois grave</span>
           </div>
           <span class="collapse-chevron" id="confChevron">▾</span>
         </div>
         <div class="collapsible-body" id="confBody" style="display:none">
           <div style="font-size:12px;color:var(--text-muted);margin-bottom:12px;line-height:1.55">
-            Leio o PDF e confiro contra o total que a própria fatura declara — se não fechar, não deixo gravar.
+            Leio o PDF ou o Excel (exportado do app Itaú) e confiro contra o total que a própria fatura declara — se não fechar, não deixo gravar.
             Parcelas de faturas futuras ficam de fora automaticamente. Nada entra no orçamento até você clicar em gravar.
           </div>
-          <input type="file" id="confFile" accept=".pdf" onchange="lerFaturaPdf(event)"
+          <input type="file" id="confFile" accept=".pdf,.xlsx,.xls" onchange="lerFaturaPdf(event)"
                  style="font-size:12.5px;color:var(--text-secondary);max-width:100%">
           <div id="confStatus" style="font-size:12.5px;margin-top:8px;"></div>
           <div id="confResumo" style="margin-top:12px;"></div>
@@ -1094,7 +1094,7 @@
         <div class="orc-sec-head">
           <div>
             <span class="orc-eyebrow">Registrar</span>
-            <h2>Novo lançamento</h2>
+            <h2 id="orcFormTitulo">Novo lançamento</h2>
           </div>
           <span class="orc-sec-note">Os dados passam a ser gravados direto no banco</span>
         </div>
@@ -1139,6 +1139,7 @@
             </div>
             <div class="ops-submit" style="margin-top:14px;">
               <button type="submit" class="btn-primary" id="orcSalvarBtn" style="width:auto;padding:10px 20px;">Adicionar lançamento</button>
+              <button type="button" class="row-action" id="orcCancelarEdicao" style="display:none;margin-left:10px;" onclick="cancelarEdicao()">Cancelar edição</button>
             </div>
             <div class="ops-erro" id="orcErro" style="display:none;"></div>
           </form>
@@ -4566,6 +4567,7 @@ function abrirLancamentosLista(titulo, sub, itens) {
       </div>
       <div style="display:flex;align-items:center;gap:10px;">
         <span class="tabular">${brl(Number(l.valor))}</span>
+        <button class="row-action" onclick="editarLancamento('${l.id}')">Editar</button>
         <button class="row-action" onclick="excluirLancamento('${l.id}')">Excluir</button>
       </div>
     </div>
@@ -4676,6 +4678,7 @@ function renderOrcListaMes(doMes) {
       </div>
       <div style="display:flex;align-items:center;gap:10px;">
         <span class="tabular">${brl(Number(l.valor))}</span>
+        <button class="row-action" onclick="editarLancamento('${l.id}')">Editar</button>
         <button class="row-action" onclick="excluirLancamento('${l.id}')">Excluir</button>
       </div>
     </div>
@@ -4704,16 +4707,25 @@ async function salvarLancamento(event) {
   }
   btn.disabled = true; btn.textContent = 'Salvando…';
   try {
-    const { data: { user } } = await sb.auth.getUser();
-    const { error } = await sb.from('lancamentos_domesticos').insert({
-      user_id: user.id, data, tipo, categoria, grupo, valor, descricao,
-      pago_por: pagoPor, compartilhado_com_luciano: compartilhado, origem: 'manual',
-    });
+    const campos = { data, tipo, categoria, grupo, valor, descricao,
+      pago_por: pagoPor, compartilhado_com_luciano: compartilhado };
+    let error;
+    if (orcEditando) {
+      // Editar: dividida vira Casa; deixar de ser dividida volta pra Pessoal
+      // (Empresa continua Empresa). Classificar um pendente confirma ele.
+      const alocAntes = orcEditando.alocacao || 'pessoal';
+      campos.alocacao = compartilhado ? 'casa' : (alocAntes === 'casa' ? 'pessoal' : alocAntes);
+      campos.status = 'confirmado';
+      ({ error } = await sb.from('lancamentos_domesticos').update(campos).eq('id', orcEditando.id));
+    } else {
+      const { data: { user } } = await sb.auth.getUser();
+      ({ error } = await sb.from('lancamentos_domesticos').insert({
+        ...campos, user_id: user.id, alocacao: compartilhado ? 'casa' : 'pessoal', origem: 'manual',
+      }));
+    }
     if (error) throw error;
     const mesLancado = data.slice(0, 7);
-    document.getElementById('orcForm').reset();
-    document.getElementById('orcData').value = new Date().toISOString().slice(0, 10);
-    atualizarFormOrcamento();
+    cancelarEdicao();
     orcamentoCarregado = false;
     orcMesAtual = mesLancado; // mostra o mês do lançamento recém-adicionado, não pula pro mais recente
     await loadOrcamentoData();
@@ -4722,8 +4734,41 @@ async function salvarLancamento(event) {
     erroEl.textContent = 'Erro ao salvar: ' + (err.message || err);
     erroEl.style.display = 'block';
   } finally {
-    btn.disabled = false; btn.textContent = 'Adicionar lançamento';
+    btn.disabled = false; btn.textContent = orcEditando ? 'Salvar alteração' : 'Adicionar lançamento';
   }
+}
+
+// Editar = o mesmo formulário, pré-preenchido; salvar faz update em vez de insert.
+let orcEditando = null;
+function editarLancamento(id) {
+  const todos = [...DATA_ORC.lancamentos, ...(DATA_ORC.pendentes || []), ...(DATA_ORC.empresa || [])];
+  const l = todos.find(x => x.id === id);
+  if (!l) return;
+  orcEditando = l;
+  fecharLancamentos();
+  document.getElementById('orcTipo').value = l.tipo;
+  atualizarFormOrcamento();
+  document.getElementById('orcData').value = String(l.data).slice(0, 10);
+  document.getElementById('orcCategoria').value = l.status === 'pendente' ? '' : l.categoria;
+  const sel = document.getElementById('orcGrupo');
+  sel.value = [...sel.options].some(o => o.value === l.grupo) ? l.grupo : '';
+  document.getElementById('orcValor').value = Number(l.valor).toFixed(2);
+  document.getElementById('orcDescricao').value = l.descricao || '';
+  if (l.tipo === 'despesa') setCompartilhado(!!l.compartilhado_com_luciano);
+  document.getElementById('orcFormTitulo').textContent = 'Editar lançamento';
+  document.getElementById('orcSalvarBtn').textContent = 'Salvar alteração';
+  document.getElementById('orcCancelarEdicao').style.display = '';
+  document.getElementById('orcForm').scrollIntoView({ behavior: 'smooth', block: 'center' });
+  document.getElementById('orcValor').focus();
+}
+function cancelarEdicao() {
+  orcEditando = null;
+  document.getElementById('orcForm').reset();
+  document.getElementById('orcData').value = new Date().toISOString().slice(0, 10);
+  atualizarFormOrcamento();
+  document.getElementById('orcFormTitulo').textContent = 'Novo lançamento';
+  document.getElementById('orcSalvarBtn').textContent = 'Adicionar lançamento';
+  document.getElementById('orcCancelarEdicao').style.display = 'none';
 }
 
 async function excluirLancamento(id) {
@@ -4971,6 +5016,67 @@ function possivelDuplicata(data, valor) {
     l.data === data && Math.abs(Number(l.valor) - valor) < 0.01);
 }
 
+// Fatura fechada exportada em Excel pelo app Itaú ("Fatura MM-AA"): cabeçalho
+// Data | Lançamento | Parcelamento | Valor | ... | Nome, terminando em "Subtotal".
+// Devolve o mesmo formato do pdfLerFatura, com a data já resolvida (o Excel traz
+// a data completa). Parcela "k de n" com k > 1 é cobrança de compra antiga: vai
+// pro mês da fatura, como no PDF. Estorno (valor negativo) abate a compra de
+// mesmo nome; o "Pagamento Efetuado" é da fatura anterior e fica de fora.
+function xlsxLerFatura(buffer) {
+  const wb = XLSX.read(buffer, { type: 'array' });
+  const linhas = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, raw: true, defval: '' });
+  const serialParaIso = n => new Date(Date.UTC(1899, 11, 30) + Number(n) * 86400000).toISOString().slice(0, 10);
+  const txt = v => String(v == null ? '' : v).replace(/\s+/g, ' ').trim();
+
+  // Total e vencimento: linha "Cartão ... Valor ... Vencimento" e a de baixo.
+  let totalDeclarado = null, vencimento = null;
+  const iCab = linhas.findIndex(l => l.some(c => txt(c) === 'Cartão') && l.some(c => txt(c) === 'Vencimento'));
+  if (iCab >= 0 && linhas[iCab + 1]) {
+    const cab = linhas[iCab].map(txt), val = linhas[iCab + 1];
+    totalDeclarado = Number(val[cab.indexOf('Valor')]);
+    vencimento = serialParaIso(val[cab.indexOf('Vencimento')]);
+  }
+  const iHead = linhas.findIndex(l => l.map(txt).includes('Lançamento') && l.map(txt).includes('Valor'));
+  if (iHead < 0 || !vencimento) throw new Error('Não reconheci o formato do Excel (esperava a fatura fechada exportada pelo app Itaú).');
+  const h = linhas[iHead].map(txt);
+  const col = nome => h.indexOf(nome);
+
+  const brutas = [];
+  for (const l of linhas.slice(iHead + 1)) {
+    if (l.map(txt).includes('Subtotal')) break;
+    const serial = l[col('Data')], valor = Number(l[col('Valor')]);
+    if (typeof serial !== 'number' || !isFinite(valor)) continue;
+    const descricao = txt(l[col('Lançamento')]);
+    if (/^pagamento efetuado/i.test(descricao)) continue;
+    const parcela = txt(l[col('Parcelamento')]);
+    const quem = txt(l[col('Nome')]);
+    brutas.push({ dataCompra: serialParaIso(serial), descricao, parcela, valor,
+                  adicional: txt(l[col('Titularidade')]) === 'Adicional' ? quem.split(' ')[0] : null });
+  }
+
+  // Estornos abatem a compra de mesmo nome; sem par, viram linha a classificar.
+  const compras = brutas.filter(b => b.valor > 0);
+  for (const e of brutas.filter(b => b.valor < 0)) {
+    const par = compras.find(c => c.descricao.toLowerCase() === e.descricao.toLowerCase() && c.valor + e.valor > 0);
+    if (par) { par.valor = Math.round((par.valor + e.valor) * 100) / 100; par.estorno = -e.valor; }
+    else compras.push({ ...e, valor: -e.valor, descricao: e.descricao + ' (estorno — conferir)' });
+  }
+
+  const transacoes = compras.map(c => {
+    const m = c.parcela.match(/(\d+)\s*de\s*(\d+)/i);
+    const antiga = m && Number(m[1]) > 1;
+    const sufixo = [m ? `${m[1]}/${m[2]}` : '', c.adicional ? `adicional ${c.adicional}` : '',
+                    c.estorno ? `já descontado estorno de ${brl(c.estorno)}` : ''].filter(Boolean).join(' · ');
+    return {
+      descricao: c.descricao + (sufixo ? ` (${sufixo})` : ''),
+      valor: c.valor, secao: 'atual',
+      dataPronta: antiga ? { data: vencimento.slice(0, 8) + '01', parcelaAntiga: true, dataOriginal: c.dataCompra }
+                         : { data: c.dataCompra, parcelaAntiga: false },
+    };
+  });
+  return { transacoes, vencimento, totalDeclarado, iof: 0 };
+}
+
 async function lerFaturaPdf(event) {
   const arquivo = event.target.files && event.target.files[0];
   const statusEl = document.getElementById('confStatus');
@@ -4983,9 +5089,11 @@ async function lerFaturaPdf(event) {
   document.getElementById('confAcoes').innerHTML = '';
 
   try {
-    if (!window.pdfjsLib) throw new Error('O leitor de PDF não carregou. Recarregue a página.');
+    const ehExcel = /\.xlsx?$/i.test(arquivo.name);
+    if (ehExcel && !window.XLSX) throw new Error('O leitor de Excel não carregou. Recarregue a página.');
+    if (!ehExcel && !window.pdfjsLib) throw new Error('O leitor de PDF não carregou. Recarregue a página.');
     const buffer = await arquivo.arrayBuffer();
-    const r = await pdfLerFatura(buffer);
+    const r = ehExcel ? xlsxLerFatura(buffer) : await pdfLerFatura(buffer);
 
     const atuais = r.transacoes.filter(t => t.secao === 'atual' || t.secao === 'internacional');
     const somaLida = atuais.reduce((s, t) => s + t.valor, 0) + r.iof;
@@ -5002,7 +5110,7 @@ async function lerFaturaPdf(event) {
     };
 
     confLinhas = atuais.map((tx, i) => {
-      const d = pdfDataDoLancamento(tx, r.vencimento);
+      const d = tx.dataPronta || pdfDataDoLancamento(tx, r.vencimento);
       const palpite = palpiteClassificacao(tx);
       return {
         i, ...tx,
