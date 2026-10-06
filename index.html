@@ -532,6 +532,9 @@
   .plan-wrap thead .plan-sel { color: var(--text-primary); }
   .plan-wrap .plan-divisa { border-left: 1px solid var(--baseline); }
   .plan-deve { color: var(--series-1); }
+  .plan-wrap .plan-falta { color: var(--status-warning); font-weight: 600; font-size: 11px; }
+  tr.plan-cota .matriz-cat { color: var(--text-muted); }
+  #planPaisAcoes { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 12px; font-size: 12px; color: var(--text-muted); }
 
   .orc-andamento {
     display:flex; align-items:flex-start; gap:9px; margin-bottom:14px; padding:11px 14px;
@@ -1047,6 +1050,7 @@
           <div class="table-wrap matriz-wrap plan-wrap">
             <table><thead><tr id="planPesHead"></tr></thead><tbody id="planPesBody"></tbody></table>
           </div>
+          <div id="planPaisAcoes"></div>
         </div>
       </section>
 
@@ -3856,11 +3860,18 @@ async function loadOrcamentoData() {
     // na origem pra nenhuma das somas lá na frente precisar saber disso.
     // "SÓ LUCIANO" = ela pagou algo que é só dele (ex: assinatura dele no cartão
     // dela): não é despesa dela nem se divide — entra 100% no que ele deve.
+    // Cotas da Amil que ela RECEBE (pai, Ivania, Wagner) não são renda: abatem a
+    // fatura da Amil. Viram aqui uma "despesa negativa" em PAIS, então toda soma
+    // (cards, gráfico, ranking, planilha) já sai líquida sem saber disso.
     const todos = data || [];
     const ehSoLuciano = l => l.categoria === CATEGORIA_SO_LUCIANO && l.status !== 'pendente';
+    const ehCotaAmil = l => l.tipo === 'receita' && l.status !== 'pendente' && PLAN_COTAS_AMIL.includes(planNorm(l.categoria));
+    const cotasAmil = todos.filter(ehCotaAmil)
+      .map(l => ({ ...l, tipo: 'despesa', grupo: 'PAIS', valor: -Number(l.valor), _orig: l, _reembolso: true }));
     DATA_ORC = {
       soLuciano:   todos.filter(ehSoLuciano),
-      lancamentos: todos.filter(l => l.status !== 'pendente' && l.alocacao !== 'empresa' && !ehSoLuciano(l)),
+      lancamentos: todos.filter(l => l.status !== 'pendente' && l.alocacao !== 'empresa' && !ehSoLuciano(l) && !ehCotaAmil(l))
+                     .concat(cotasAmil).sort((a, b) => String(a.data).localeCompare(String(b.data))),
       pendentes:   todos.filter(l => l.status === 'pendente'),
       empresa:     todos.filter(l => l.alocacao === 'empresa' && l.status !== 'pendente'),
       gastosLuciano: [], statusLuciano: null,
@@ -4247,7 +4258,9 @@ function renderOrcRanking(despesas) {
     const chave = orcRankModo === 'grupo' ? orcPaiDe(l) : l.categoria;
     map[chave] = (map[chave] || 0) + Number(l.valor);
   });
-  let itens = Object.entries(map).map(([nome, total]) => ({ nome, total, chaves: [nome] })).sort((a, b) => b.total - a.total);
+  let itens = Object.entries(map).map(([nome, total]) => ({ nome, total, chaves: [nome] }))
+    .filter(i => i.total > 0.005) // cota da Amil sozinha (negativa) não vira barra
+    .sort((a, b) => b.total - a.total);
 
   if (!itens.length) {
     wrap.innerHTML = '<div class="orc-empty">Sem despesas lançadas neste mês.</div>';
@@ -4358,7 +4371,11 @@ const PLAN_REC_EMPRESA = ['EMPRESA', 'SALARIO 15', 'SALARIO 05', 'SALARIO', 'PRE
 // com o Luciano continuam com os subitens da planilha.
 const PLAN_TITULOS = ['CASA', 'SAÚDE', 'ESTÉTICA', 'VESTUÁRIO', 'LAZER', 'EDUCAÇÃO', 'TRANSPORTE', 'HARLEY',
   'DOAÇÕES', 'PRESENTES', 'OUTROS'];
-const PLAN_PAIS = ['NETFLIX PAIS', 'VIVO PAIS', 'ECO SALVA + UNIL', 'AMIL MARCIA'];
+// PAIS igual à planilha: AMIL MARCIA = FATURA AMIL − cotas recebidas (PAI,
+// IVANIA, WAGNER), calculada. As cotas são receitas dela, abatidas da fatura.
+const PLAN_PAIS = ['NETFLIX PAIS', 'VIVO PAIS', 'ECO SALVA + UNIL', 'AMIL MARCIA', 'FATURA AMIL', 'PAI', 'IVANIA', 'WAGNER'];
+const PLAN_PAIS_DESPESAS = ['NETFLIX PAIS', 'VIVO PAIS', 'ECO SALVA + UNIL', 'FATURA AMIL'];
+const PLAN_COTAS_AMIL = ['PAI', 'IVANIA', 'WAGNER']; // já normalizados
 
 // Subitens antigos (planilha e conferência de fatura) -> título novo. Mantém
 // funcionando o que já está no banco e o que vier com nome antigo.
@@ -4455,20 +4472,25 @@ function renderPlanilhaOrcamento() {
     `<th class="matriz-total-col">TOTAL</th>`;
 
   // Uma linha da planilha: soma por mês, cada célula abre os lançamentos dela.
-  const linha = (rotulo, itens, classe, tituloBase) => {
+  // opts.abs: mostra sem sinal (cotas recebidas, guardadas como negativas);
+  // opts.falta(m): célula vazia que deveria ter valor vira um aviso "falta".
+  const linha = (rotulo, itens, classe, tituloBase, opts = {}) => {
     const titulo = tituloBase || rotulo;
+    const mostra = v => opts.abs ? Math.abs(v) : v;
     const celulas = meses.map(m => {
       const lista = itens.filter(l => String(l.data).slice(0, 7) === m);
-      if (!lista.length) return `<td class="tabular matriz-cell vazia${sel(m)}">—</td>`;
+      if (!lista.length) return opts.falta && opts.falta(m)
+        ? `<td class="tabular matriz-cell vazia plan-falta${sel(m)}" title="Fatura da Amil paga e este recebimento não foi lançado">falta</td>`
+        : `<td class="tabular matriz-cell vazia${sel(m)}">—</td>`;
       const idx = planCelulas.push({ titulo: `${titulo} — ${mesLabel(m + '-01')}`, itens: lista }) - 1;
-      return `<td class="tabular matriz-cell${sel(m)}" ${planCel(lista.reduce((s, l) => s + Number(l.valor), 0), idx)}</td>`;
+      return `<td class="tabular matriz-cell${sel(m)}" ${planCel(mostra(lista.reduce((s, l) => s + Number(l.valor), 0)), idx)}</td>`;
     }).join('');
     let nome = escapeHtml(rotulo);
     if (itens.length) {
       const idx = planCelulas.push({ titulo: `${titulo} — ${ano}`, itens }) - 1;
       nome = `<button type="button" class="link-btn" onclick="planAbrir(${idx})">${nome}</button>`;
     }
-    const total = itens.reduce((s, l) => s + Number(l.valor), 0);
+    const total = mostra(itens.reduce((s, l) => s + Number(l.valor), 0));
     return `<tr class="${classe || ''}"><td class="matriz-cat">${nome}</td>${celulas}<td class="tabular matriz-total-col">${itens.length ? planNum(total) : '—'}</td></tr>`;
   };
 
@@ -4487,14 +4509,36 @@ function renderPlanilhaOrcamento() {
   const pessoais = doAno.filter(l => l.tipo === 'despesa' && !l.compartilhado_com_luciano);
   const comLinha = pessoais.map(l => ({ l, ...planLinhaPessoal(l) }));
   const doPais = comLinha.filter(x => x.pai === 'PAIS');
-  const filhosPais = [...PLAN_PAIS, ...new Set(doPais.map(x => x.filho).filter(f => !PLAN_PAIS.includes(f)))];
+  const daPais = f => doPais.filter(x => x.filho === f).map(x => x.l);
+  // AMIL MARCIA = fatura − cotas (+ lançamentos antigos já líquidos com esse nome).
+  const amil = ['AMIL MARCIA', 'FATURA AMIL', 'PAI', 'IVANIA', 'WAGNER'].flatMap(daPais);
+  const mesesComFatura = new Set(daPais('FATURA AMIL').map(l => String(l.data).slice(0, 7)));
+  const extrasPais = [...new Set(doPais.map(x => x.filho).filter(f => !PLAN_PAIS.includes(f)))];
+  const linhaPais = f => {
+    if (f === 'AMIL MARCIA') return linha(f, amil, 'plan-filho', 'PAIS › AMIL MARCIA (fatura − cotas recebidas)');
+    if (PLAN_COTAS_AMIL.includes(f)) return linha(f, daPais(f), 'plan-filho plan-cota', `PAIS › ${f} (recebido)`,
+      { abs: true, falta: m => mesesComFatura.has(m) });
+    return linha(f, daPais(f), PLAN_PAIS.includes(f) ? 'plan-filho' : 'plan-filho plan-extra', `PAIS › ${f}`);
+  };
   document.getElementById('planPesHead').innerHTML = cab;
   document.getElementById('planPesBody').innerHTML =
     PLAN_TITULOS.map(t => linha(t, comLinha.filter(x => x.pai === t).map(x => x.l))).join('') +
     linha('PAIS', doPais.map(x => x.l), 'plan-pai') +
-    filhosPais.map(f => linha(f, doPais.filter(x => x.filho === f).map(x => x.l),
-      PLAN_PAIS.includes(f) ? 'plan-filho' : 'plan-filho plan-extra', `PAIS › ${f}`)).join('') +
+    [...PLAN_PAIS, ...extrasPais].map(linhaPais).join('') +
     linha('TOTAL SÓ MARCIA', pessoais, 'plan-total', 'Minhas despesas');
+
+  // Mês selecionado com fatura da Amil e cota ainda não lançada: atalho pra
+  // registrar o recebimento, com o último valor que aquela pessoa pagou.
+  const faltam = mesesComFatura.has(orcMesAtual)
+    ? PLAN_COTAS_AMIL.filter(c => !daPais(c).some(l => String(l.data).slice(0, 7) === orcMesAtual)) : [];
+  const ultimaCota = c => {
+    const v = DATA_ORC.lancamentos.filter(l => l._reembolso && planNorm(l.categoria) === c).pop();
+    return v ? Math.abs(Number(v.valor)) : ({ PAI: 800, IVANIA: 450, WAGNER: 900 })[c];
+  };
+  document.getElementById('planPaisAcoes').innerHTML = faltam.length
+    ? `<span>Cotas da Amil de ${mesLabel(orcMesAtual + '-01')} ainda não lançadas:</span>` +
+      faltam.map(c => `<button class="row-action" onclick="abrirRecebimentoCota('${c}', ${ultimaCota(c)})">Recebi ${c} (${brl(ultimaCota(c))})</button>`).join('')
+    : '';
 
   renderPlanilhaCasa(ano, meses, sel);
 }
@@ -4578,12 +4622,12 @@ function abrirLancamentosLista(titulo, sub, itens) {
   lista.innerHTML = !ordenados.length ? '<div class="op-vazio">Nenhum lançamento.</div>' : ordenados.map(l => `
     <div class="op-row">
       <div>
-        <span class="op-tag ${l.tipo === 'receita' ? 'compra' : 'venda'}">${l.tipo === 'receita' ? 'Receita' : 'Despesa'}</span>
+        <span class="op-tag ${l.tipo === 'receita' || l._reembolso ? 'compra' : 'venda'}">${l._reembolso ? 'Recebido' : l.tipo === 'receita' ? 'Receita' : 'Despesa'}</span>
         <span style="margin-left:8px;">${fmtDate(l.data)} · ${escapeHtml(l.categoria)}${l.descricao ? ' · ' + escapeHtml(l.descricao) : ''}</span>
         ${l.compartilhado_com_luciano ? `<span class="orc-chip">${l.pago_por === 'luciano' ? 'pago por Luciano' : 'pago por Marcia'}</span>` : ''}
       </div>
       <div style="display:flex;align-items:center;gap:10px;">
-        <span class="tabular">${brl(Number(l.valor))}</span>
+        <span class="tabular">${brl(Math.abs(Number(l.valor)))}</span>
         <button class="row-action" onclick="editarLancamento('${l.id}')">Editar</button>
         <button class="row-action" onclick="excluirLancamento('${l.id}')">Excluir</button>
       </div>
@@ -4678,6 +4722,21 @@ function abrirRecebimentoLuciano(valor) {
   document.getElementById('orcValor').focus();
 }
 
+// Pré-preenche o formulário com a cota da Amil recebida — ela só confere e salva.
+function abrirRecebimentoCota(quem, valor) {
+  cancelarEdicao();
+  document.getElementById('orcTipo').value = 'receita';
+  atualizarFormOrcamento();
+  document.getElementById('orcCategoria').value = quem;
+  document.getElementById('orcGrupo').value = 'PAIS';
+  document.getElementById('orcValor').value = Number(valor).toFixed(2);
+  document.getElementById('orcDescricao').value = `Cota da Amil — ${mesLabel(orcMesAtual + '-01')}`;
+  const hoje = new Date().toISOString().slice(0, 10);
+  document.getElementById('orcData').value = hoje.startsWith(orcMesAtual) ? hoje : orcMesAtual + '-01';
+  document.getElementById('orcForm').scrollIntoView({ behavior: 'smooth', block: 'center' });
+  document.getElementById('orcValor').focus();
+}
+
 function irParaMes(mes) {
   const sel = document.getElementById('orcMesSelect');
   if (!sel || ![...sel.options].some(o => o.value === mes)) return;
@@ -4691,11 +4750,11 @@ function renderOrcListaMes(doMes) {
     [...doMes].sort((a, b) => String(b.data).localeCompare(String(a.data))).map(l => `
     <div class="op-row">
       <div>
-        <span class="op-tag ${l.tipo === 'receita' ? 'compra' : 'venda'}">${l.tipo === 'receita' ? 'Receita' : 'Despesa'}</span>
+        <span class="op-tag ${l.tipo === 'receita' || l._reembolso ? 'compra' : 'venda'}">${l._reembolso ? 'Recebido' : l.tipo === 'receita' ? 'Receita' : 'Despesa'}</span>
         <span style="margin-left:8px;">${fmtDate(l.data)} · ${escapeHtml(l.categoria)}${l.descricao ? ' · ' + escapeHtml(l.descricao) : ''}</span>
       </div>
       <div style="display:flex;align-items:center;gap:10px;">
-        <span class="tabular">${brl(Number(l.valor))}</span>
+        <span class="tabular">${brl(Math.abs(Number(l.valor)))}</span>
         <button class="row-action" onclick="editarLancamento('${l.id}')">Editar</button>
         <button class="row-action" onclick="excluirLancamento('${l.id}')">Excluir</button>
       </div>
@@ -4761,7 +4820,8 @@ async function salvarLancamento(event) {
 let orcEditando = null;
 function editarLancamento(id) {
   const todos = [...DATA_ORC.lancamentos, ...(DATA_ORC.pendentes || []), ...(DATA_ORC.empresa || []), ...(DATA_ORC.soLuciano || [])];
-  const l = todos.find(x => x.id === id);
+  const achado = todos.find(x => x.id === id);
+  const l = achado && achado._orig ? achado._orig : achado; // cota da Amil: edita o original (receita)
   if (!l) return;
   orcEditando = l;
   fecharLancamentos();
@@ -4972,7 +5032,7 @@ function pdfDataDoLancamento(tx, vencimento) {
 const GRUPO_CASA_DIVIDIDA = 'CASA DIVIDIDA (Luciano)';
 const TAXONOMIA = {
   ...Object.fromEntries(PLAN_TITULOS.map(t => [t, []])),
-  'PAIS': PLAN_PAIS,
+  'PAIS': PLAN_PAIS_DESPESAS,
   [GRUPO_CASA_DIVIDIDA]: [...PLAN_CASA, 'SÓ LUCIANO'],
 };
 
