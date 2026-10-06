@@ -1042,7 +1042,6 @@
             <span class="orc-eyebrow">Planilha · só Marcia</span>
             <h2>Minhas despesas</h2>
           </div>
-          <button class="link-btn" id="planDetalheBtn" onclick="togglePlanDetalhe()">Esconder detalhe</button>
         </div>
         <div class="card plan-card">
           <div class="table-wrap matriz-wrap plan-wrap">
@@ -1112,16 +1111,15 @@
                 <input type="date" id="orcData" required>
               </label>
               <label>Categoria
-                <input type="text" id="orcCategoria" list="orcCategoriasList" placeholder="Ex: Alimentação" required>
+                <input type="text" id="orcCategoria" list="orcCategoriasList" placeholder="Ex: CASA, LUZ, PROVENTOS" required>
                 <datalist id="orcCategoriasList"></datalist>
               </label>
               <label>Grupo (opcional)
                 <select id="orcGrupo">
                   <option value="">—</option>
-                  <option>Casa</option><option>Alimentação</option><option>Saúde</option>
-                  <option>Beleza/Autocuidado</option><option>Vestuário</option><option>Lazer</option>
-                  <option>Educação</option><option>Transporte</option><option>Presentes/Doações</option>
-                  <option>Pet</option><option>Pais</option><option>Outros</option>
+                  <option>CASA</option><option>SAÚDE</option><option>ESTÉTICA</option><option>VESTUÁRIO</option>
+                  <option>LAZER</option><option>EDUCAÇÃO</option><option>TRANSPORTE</option><option>HARLEY</option>
+                  <option>DOAÇÕES</option><option>PRESENTES</option><option>OUTROS</option><option>PAIS</option>
                 </select>
               </label>
               <label>Valor (R$)
@@ -3910,8 +3908,10 @@ function popularMesesOrcamento() {
   sel.value = orcMesAtual;
 }
 
+// Sugestões = as linhas da planilha (títulos, PAIS, casa dividida e receitas),
+// pra o lançamento já cair na linha certa.
 function popularCategoriasDatalist() {
-  const cats = [...new Set(DATA_ORC.lancamentos.map(l => l.categoria))].sort();
+  const cats = [...new Set([...PLAN_TITULOS, ...PLAN_PAIS, ...PLAN_CASA, ...PLAN_RECEITAS, CATEGORIA_ACERTO_LUCIANO])];
   document.getElementById('orcCategoriasList').innerHTML = cats.map(c => `<option value="${escapeHtml(c)}">`).join('');
 }
 
@@ -4341,22 +4341,37 @@ function abrirLancamentosRanking(i) {
    numa linha pelo nome da categoria (sem acento/caixa/pontuação), com apelidos
    para os nomes da tela de conferência de fatura. O que não casar com nenhuma
    linha aparece numa linha própria, em itálico — nunca some do total. */
-const PLAN_RECEITAS = ['SALARIO 15', 'SALARIO 05', 'PREMIO', '13° /PLR/FERIAS/PREMIAÇOES', 'I FOOD (29)',
-  'NOTA PR/CWB/CASHBACK', 'REIKI/RADIESTESIA', 'OUTROS', 'RESTITUIÇÃO IRPF', 'PROVENTOS'];
+// Receitas em 3 linhas (out/2026, decisão dela). EMPRESA soma o que vinha do
+// trabalho; o que não for EMPRESA nem PROVENTOS cai em OUTROS.
+const PLAN_RECEITAS = ['EMPRESA', 'PROVENTOS', 'OUTROS'];
+const PLAN_REC_EMPRESA = ['EMPRESA', 'SALARIO 15', 'SALARIO 05', 'SALARIO', 'PREMIO',
+  '13° /PLR/FERIAS/PREMIAÇOES', 'I FOOD (29)', 'IFOOD', 'RESCISÃO'];
 
-const PLAN_PESSOAL = [
-  ['PESSOAL/CASA', ['ALIMENTAÇÃO', 'BEB ALCOOLICA', 'BELLA', 'VIVO', 'ITENS CASA']],
-  ['SAUDE', ['ECO SALVA+ LUTO', 'ESPIRITUALIDADE', 'MEDICOS', 'TERAPIAS', 'MEDICAMENTOS']],
-  ['AUTO CUIDADO', ['MASSAGEM/ OSTEOPATA', 'ESTÉTICA', 'ATIVIDADE FISICA', 'SALAO DE BELEZA', 'PERFUMARIA']],
-  ['VESTUÁRIO', ['ROUPAS', 'LINGERIE/PRAIA', 'CALÇADOS', 'SAP/COSTUREIRA', 'ACESSÓRIOS']],
-  ['LAZER', ['EVENTOS/PUBS/REF VIAG', 'LOGISTICA', 'HOSPEDAGEM', 'HOG', 'INGRESSOS ENTRET']],
-  ['EDUCAÇÃO', ['LIVROS', 'CURSOS', 'PALESTRAS', 'APP/ EQUIP']],
-  ['TRANSPORTE', ['PEDAGIO', 'UBER', 'ESTACIONAMENTO', 'COMBUSTIVEL']],
-  ['HARLEY', ['LAVAGEM', 'MANUTENÇÃO', 'IPVA/LICENC', 'SEGURO']],
-  ['OUTROS', ['ADVOGADO', 'UNILUTUS', 'TAXAS', 'IRPF /TXS INV', 'OUTROS', 'PRESENTES']],
-  ['DOAÇÕES', ['TERREIRO', 'VENDAS SINALEIRO', 'DOAÇÕES']],
-  ['PAIS', ['NETFLIX PAIS', 'VIVO PAIS', 'ECO SALVA + UNIL', 'AMIL MARCIA']],
-];
+// Minhas despesas: só títulos (out/2026, decisão dela). PAIS e a casa dividida
+// com o Luciano continuam com os subitens da planilha.
+const PLAN_TITULOS = ['CASA', 'SAÚDE', 'ESTÉTICA', 'VESTUÁRIO', 'LAZER', 'EDUCAÇÃO', 'TRANSPORTE', 'HARLEY',
+  'DOAÇÕES', 'PRESENTES', 'OUTROS'];
+const PLAN_PAIS = ['NETFLIX PAIS', 'VIVO PAIS', 'ECO SALVA + UNIL', 'AMIL MARCIA'];
+
+// Subitens antigos (planilha e conferência de fatura) -> título novo. Mantém
+// funcionando o que já está no banco e o que vier com nome antigo.
+const PLAN_SUB_PARA_TITULO = {
+  'CASA': ['PESSOAL/CASA', 'ALIMENTAÇÃO', 'BEB ALCOOLICA', 'BELLA', 'BELLA BANHO', 'BELLA PETLOVE', 'BELLA RAÇÃO',
+    'BELLA SAUDE', 'PET', 'VIVO', 'ITENS CASA', 'MERCADO', 'LUZ', 'AGUA', 'GAS', 'IPTU', 'NETFLIX', 'YOUTUBE',
+    'TV/INTERNET', 'ITUNES', 'LIMPEZA CASA', 'JARDIM', 'MANUTENÇÃO CASA', 'ITENS PARA CASA'],
+  'SAÚDE': ['ECO SALVA+ LUTO', 'ESPIRITUALIDADE', 'MEDICOS', 'TERAPIAS', 'MEDICAMENTOS', 'FARMACIA/HIGIENE',
+    'WELLHUB', 'MASSAGEM/ OSTEOPATA', 'ATIVIDADE FISICA'],
+  'ESTÉTICA': ['AUTO CUIDADO', 'BELEZA/AUTOCUIDADO', 'SALAO DE BELEZA', 'PERFUMARIA'],
+  'VESTUÁRIO': ['ROUPAS', 'LINGERIE/PRAIA', 'CALÇADOS', 'SAP/COSTUREIRA', 'ACESSÓRIOS'],
+  'LAZER': ['EVENTOS/PUBS/REF VIAG', 'EVENTOS/PUBS', 'LOGISTICA', 'HOSPEDAGEM', 'INGRESSOS ENTRET', 'INGRESSOS',
+    'VIAGEM ITÁLIA'],
+  'EDUCAÇÃO': ['LIVROS', 'CURSOS', 'PALESTRAS', 'APP/ EQUIP'],
+  'TRANSPORTE': ['PEDAGIO', 'UBER', 'ESTACIONAMENTO', 'ESTACIONAMEMNTO', 'COMBUSTIVEL'],
+  'HARLEY': ['LAVAGEM', 'MANUTENÇÃO', 'IPVA/LICENC', 'IPVA/LICENCIAMENTO', 'SEGURO', 'HOG'],
+  'DOAÇÕES': ['TERREIRO', 'VENDAS SINALEIRO', 'PRESENTES/DOAÇÕES'],
+  'OUTROS': ['ADVOGADO', 'UNILUTUS', 'TAXAS', 'IRPF /TXS INV', 'IRPR /TXS INV', 'IRPF/TAXAS INVEST', 'SONG',
+    'SEGURO SONG'],
+};
 
 const PLAN_CASA = ['LUZ', 'AGUA', 'GAS', 'IPTU', 'NETFLIX', 'YOUTUBE', 'TV/INTERNET', 'ITUNES',
   'MERCADO/ALIMENTAÇÃO', 'FARMACIA/ITENS HIGIENE', 'LIMPEZA CASA', 'JARDIM', 'MANUTENÇÃO CASA',
@@ -4367,74 +4382,49 @@ const planNorm = s => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').t
 
 // Apelidos (já normalizados) -> linha da planilha. Cobrem a taxonomia da
 // conferência de fatura e nomes que o sistema do Luciano pode usar.
-const PLAN_APELIDO_PESSOAL = {
-  MERCADO: 'ALIMENTAÇÃO', BELLABANHO: 'BELLA', BELLAPETLOVE: 'BELLA', BELLARACAO: 'BELLA', BELLASAUDE: 'BELLA',
-  FARMACIAHIGIENE: 'MEDICAMENTOS', INGRESSOS: 'INGRESSOS ENTRET', EVENTOSPUBS: 'EVENTOS/PUBS/REF VIAG',
-  ESTACIONAMEMNTO: 'ESTACIONAMENTO', IPVALICENCIAMENTO: 'IPVA/LICENC', IRPFTAXASINVEST: 'IRPF /TXS INV',
-  IRPRTXSINV: 'IRPF /TXS INV',
-};
 const PLAN_APELIDO_CASA = {
   ALIMENTACAO: 'MERCADO/ALIMENTAÇÃO', MERCADO: 'MERCADO/ALIMENTAÇÃO', FARMACIAHIGIENE: 'FARMACIA/ITENS HIGIENE',
   ITENSCASA: 'ITENS PARA CASA', BELLAPETLOVE: 'BELLA - PETLOVE', BELLARACAO: 'BELLA  RAÇÃO',
   ESTACIONAMENTO: 'ESTACIPEDA/COMB/PED', COMBUSTIVEL: 'ESTACIPEDA/COMB/PED', PEDAGIO: 'ESTACIPEDA/COMB/PED',
   INTERNET: 'TV/INTERNET', ENERGIA: 'LUZ', COPEL: 'LUZ', SANEPAR: 'AGUA',
 };
-// Grupo da taxonomia da fatura -> bloco da planilha, quando o nome não casa.
-const PLAN_GRUPO_PARA_PAI = {
-  CASA: 'PESSOAL/CASA', ALIMENTACAO: 'PESSOAL/CASA', PET: 'PESSOAL/CASA', SAUDE: 'SAUDE',
-  BELEZAAUTOCUIDADO: 'AUTO CUIDADO', VESTUARIO: 'VESTUÁRIO', LAZER: 'LAZER', EDUCACAO: 'EDUCAÇÃO',
-  TRANSPORTE: 'TRANSPORTE', PRESENTESDOACOES: 'DOAÇÕES', PAIS: 'PAIS', OUTROS: 'OUTROS',
-};
-
 const PLAN_IDX = (() => {
-  const filho = {}, pai = {};
-  PLAN_PESSOAL.forEach(([p, fs]) => {
-    pai[planNorm(p)] = p;
-    fs.forEach(f => { if (!filho[planNorm(f)]) filho[planNorm(f)] = { pai: p, filho: f }; });
-  });
-  // OUTROS e DOAÇÕES são pai e filho ao mesmo tempo: o nome sozinho cai no filho.
-  for (const [ap, f] of Object.entries(PLAN_APELIDO_PESSOAL)) {
-    const alvo = filho[planNorm(f)]; if (alvo && !filho[ap]) filho[ap] = alvo;
-  }
+  const titulo = {};
+  PLAN_TITULOS.forEach(t => { titulo[planNorm(t)] = t; });
+  for (const [t, subs] of Object.entries(PLAN_SUB_PARA_TITULO)) subs.forEach(s => { titulo[planNorm(s)] ??= t; });
+  const pais = {};
+  PLAN_PAIS.forEach(p => { pais[planNorm(p)] = p; });
   const casa = {};
   PLAN_CASA.forEach(c => { casa[planNorm(c)] = c; });
   for (const [ap, c] of Object.entries(PLAN_APELIDO_CASA)) if (!casa[ap]) casa[ap] = c;
   const rec = {};
-  PLAN_RECEITAS.forEach(r => { rec[planNorm(r)] = r; });
-  return { filho, pai, casa, rec };
+  PLAN_REC_EMPRESA.forEach(r => { rec[planNorm(r)] = 'EMPRESA'; });
+  rec.PROVENTOS = 'PROVENTOS';
+  return { titulo, pais, casa, rec };
 })();
-
-const PLAN_SEM_DETALHE = '(sem detalhe)';
 
 // Número compacto, como na planilha (sem "R$" nem centavos), pra jan–dez +
 // total caberem na tela; o valor exato fica no title e no clique.
 const planNum = v => Number(v).toLocaleString('pt-BR', { maximumFractionDigits: 0 });
 const planCel = (v, idx) => `title="${brl(v)}" onclick="planAbrir(${idx})">${planNum(v)}`;
 
-// Onde um lançamento de despesa pessoal cai: { pai, filho }.
+// Onde um lançamento de despesa pessoal cai: { pai, filho }. Filho só existe
+// em PAIS; nos demais títulos o subitem antigo fica só na descrição.
 function planLinhaPessoal(l) {
   const n = planNorm(l.categoria);
-  if (PLAN_IDX.filho[n]) return PLAN_IDX.filho[n];
-  if (PLAN_IDX.pai[n]) return { pai: PLAN_IDX.pai[n], filho: PLAN_SEM_DETALHE };
-  const pai = PLAN_IDX.pai[planNorm(l.grupo)] || PLAN_GRUPO_PARA_PAI[planNorm(l.grupo)] || 'OUTROS';
-  return { pai, filho: String(l.categoria || 'Sem categoria').toUpperCase() };
+  if (PLAN_IDX.pais[n]) return { pai: 'PAIS', filho: PLAN_IDX.pais[n] };
+  if (n === 'PAIS' || planNorm(l.grupo) === 'PAIS') return { pai: 'PAIS', filho: String(l.categoria || '').toUpperCase() };
+  return { pai: PLAN_IDX.titulo[n] || PLAN_IDX.titulo[planNorm(l.grupo)] || 'OUTROS', filho: null };
 }
 function planLinhaCasa(categoria) {
   return PLAN_IDX.casa[planNorm(categoria)] || String(categoria || 'Sem categoria').toUpperCase();
 }
 function planLinhaReceita(l) {
-  return PLAN_IDX.rec[planNorm(l.categoria)] || String(l.categoria || 'Sem categoria').toUpperCase();
+  return PLAN_IDX.rec[planNorm(l.categoria)] || 'OUTROS';
 }
 // Usado também pelo ranking "por grupo", pra falar a mesma língua da planilha.
 function orcPaiDe(l) {
   return l.compartilhado_com_luciano ? 'CASA (dividido)' : planLinhaPessoal(l).pai;
-}
-
-let planDetalhe = true;
-function togglePlanDetalhe() {
-  planDetalhe = !planDetalhe;
-  document.getElementById('planDetalheBtn').textContent = planDetalhe ? 'Esconder detalhe' : 'Mostrar detalhe';
-  renderPlanilhaOrcamento();
 }
 
 let planCelulas = []; // listas de lançamentos por célula — o clique acha por índice
@@ -4476,28 +4466,25 @@ function renderPlanilhaOrcamento() {
 
   // ---- Receitas (+ PAYTRACK embaixo, fora do total, como na planilha) ----
   const receitas = doAno.filter(l => l.tipo === 'receita');
-  const linhasRec = [...PLAN_RECEITAS];
-  receitas.forEach(l => { const r = planLinhaReceita(l); if (!linhasRec.includes(r)) linhasRec.push(r); });
   const paytrack = (DATA_ORC.empresa || []).filter(l => l.tipo === 'receita' && String(l.data).startsWith(ano));
   document.getElementById('planRecHead').innerHTML = cab;
   document.getElementById('planRecBody').innerHTML =
-    linhasRec.map(r => linha(r, receitas.filter(l => planLinhaReceita(l) === r),
-      PLAN_RECEITAS.includes(r) ? '' : 'plan-extra')).join('') +
+    PLAN_RECEITAS.map(r => linha(r, receitas.filter(l => planLinhaReceita(l) === r))).join('') +
     linha('TOTAL', receitas, 'plan-total', 'Receitas') +
     linha('PAYTRACK', paytrack, 'plan-rodape', 'PAYTRACK (reembolso Sun Pharma, fora do total)');
 
-  // ---- Minhas despesas: total do grupo + detalhe embaixo ----
+  // ---- Minhas despesas: um título por linha; PAIS com os subitens ----
   const pessoais = doAno.filter(l => l.tipo === 'despesa' && !l.compartilhado_com_luciano);
   const comLinha = pessoais.map(l => ({ l, ...planLinhaPessoal(l) }));
+  const doPais = comLinha.filter(x => x.pai === 'PAIS');
+  const filhosPais = [...PLAN_PAIS, ...new Set(doPais.map(x => x.filho).filter(f => !PLAN_PAIS.includes(f)))];
   document.getElementById('planPesHead').innerHTML = cab;
-  document.getElementById('planPesBody').innerHTML = PLAN_PESSOAL.map(([pai, filhos]) => {
-    const doPai = comLinha.filter(x => x.pai === pai);
-    const extras = [...new Set(doPai.map(x => x.filho).filter(f => !filhos.includes(f)))];
-    const detalhe = planDetalhe ? [...filhos, ...extras].map(f =>
-      linha(f, doPai.filter(x => x.filho === f).map(x => x.l),
-        filhos.includes(f) ? 'plan-filho' : 'plan-filho plan-extra', `${pai} › ${f}`)).join('') : '';
-    return linha(pai, doPai.map(x => x.l), 'plan-pai') + detalhe;
-  }).join('') + linha('TOTAL SÓ MARCIA', pessoais, 'plan-total', 'Minhas despesas');
+  document.getElementById('planPesBody').innerHTML =
+    PLAN_TITULOS.map(t => linha(t, comLinha.filter(x => x.pai === t).map(x => x.l))).join('') +
+    linha('PAIS', doPais.map(x => x.l), 'plan-pai') +
+    filhosPais.map(f => linha(f, doPais.filter(x => x.filho === f).map(x => x.l),
+      PLAN_PAIS.includes(f) ? 'plan-filho' : 'plan-filho plan-extra', `PAIS › ${f}`)).join('') +
+    linha('TOTAL SÓ MARCIA', pessoais, 'plan-total', 'Minhas despesas');
 
   renderPlanilhaCasa(ano, meses, sel);
 }
@@ -4569,7 +4556,7 @@ function abrirLancamentosLista(titulo, sub, itens) {
     <div class="op-row">
       <div>
         <span class="op-tag ${l.tipo === 'receita' ? 'compra' : 'venda'}">${l.tipo === 'receita' ? 'Receita' : 'Despesa'}</span>
-        <span style="margin-left:8px;">${fmtDate(l.data)}${l.descricao ? ' · ' + escapeHtml(l.descricao) : ''}</span>
+        <span style="margin-left:8px;">${fmtDate(l.data)} · ${escapeHtml(l.categoria)}${l.descricao ? ' · ' + escapeHtml(l.descricao) : ''}</span>
         ${l.compartilhado_com_luciano ? `<span class="orc-chip">${l.pago_por === 'luciano' ? 'pago por Luciano' : 'pago por Marcia'}</span>` : ''}
       </div>
       <div style="display:flex;align-items:center;gap:10px;">
@@ -4910,22 +4897,14 @@ function pdfDataDoLancamento(tx, vencimento) {
 }
 
 /* ---------------- Taxonomia: grupo -> subcategorias ---------------- */
-// Veio da própria planilha dela (linhas-mãe e suas filhas), com dois ajustes
-// que ela confirmou: "ESTACIONAMEMNTO" estava com erro de digitação, e
-// "DOAÇÕES" aparecia duas vezes. Escolher a subcategoria já define o grupo.
+// Os mesmos títulos da tabela "Minhas despesas" (out/2026): só títulos, sem
+// subitem, exceto PAIS e a casa dividida com o Luciano, que mantêm os subitens
+// da planilha. Escolher um item da casa dividida já marca a linha como Casa.
+const GRUPO_CASA_DIVIDIDA = 'CASA DIVIDIDA (Luciano)';
 const TAXONOMIA = {
-  'Casa':               ['Vivo', 'Itens casa', 'Luz', 'Água', 'Gás', 'IPTU', 'Netflix', 'YouTube', 'TV/Internet', 'iTunes', 'Limpeza casa', 'Jardim', 'Manutenção casa', 'Itens para casa'],
-  'Alimentação':        ['Alimentação', 'Beb alcoólica', 'Mercado'],
-  'Saúde':              ['Eco Salva+Luto', 'Espiritualidade', 'Médicos', 'Terapias', 'Medicamentos', 'Farmácia/Higiene', 'Wellhub'],
-  'Beleza/Autocuidado': ['Massagem/Osteopata', 'Estética', 'Atividade física', 'Salão de beleza', 'Perfumaria'],
-  'Vestuário':          ['Roupas', 'Lingerie/Praia', 'Calçados', 'SAP/Costureira', 'Acessórios'],
-  'Lazer':              ['Eventos/Pubs', 'Logística', 'Hospedagem', 'HOG', 'Ingressos'],
-  'Educação':           ['Livros', 'Cursos', 'Palestras', 'App/Equip'],
-  'Transporte':         ['Pedágio', 'Uber', 'Estacionamento', 'Combustível', 'Harley', 'Lavagem', 'Manutenção', 'IPVA/Licenciamento', 'Seguro'],
-  'Pet':                ['Bella', 'Bella banho', 'Bella PetLove', 'Bella ração', 'Bella saúde'],
-  'Presentes/Doações':  ['Presentes', 'Doações', 'Terreiro', 'Vendas sinaleiro'],
-  'Pais':               ['Netflix pais', 'Vivo pais', 'Eco Salva+Unil', 'Amil Marcia'],
-  'Outros':             ['Advogado', 'Unilutus', 'Taxas', 'IRPF/Taxas invest', 'Song', 'Seguro Song', 'Outros'],
+  ...Object.fromEntries(PLAN_TITULOS.map(t => [t, []])),
+  'PAIS': PLAN_PAIS,
+  [GRUPO_CASA_DIVIDIDA]: PLAN_CASA,
 };
 
 function grupoDaSubcategoria(sub) {
@@ -4936,8 +4915,8 @@ function grupoDaSubcategoria(sub) {
 // A própria fatura já classifica cada compra — vira o primeiro palpite quando
 // não há histórico daquele estabelecimento.
 const ITAU_PARA_GRUPO = {
-  'ALIMENTAÇÃO': 'Alimentação', 'VEÍCULOS': 'Transporte', 'MORADIA': 'Casa',
-  'SAÚDE': 'Saúde', 'VESTUÁRIO': 'Vestuário', 'HOBBY': 'Lazer', 'DIVERSOS': 'Outros',
+  'ALIMENTAÇÃO': 'CASA', 'VEÍCULOS': 'TRANSPORTE', 'MORADIA': 'CASA',
+  'SAÚDE': 'SAÚDE', 'VESTUÁRIO': 'VESTUÁRIO', 'HOBBY': 'LAZER', 'DIVERSOS': 'OUTROS',
 };
 
 /* ---------------- Conferência de fatura ---------------- */
@@ -4965,8 +4944,12 @@ function palpiteClassificacao(tx) {
       l.tipo === 'despesa' && raizEstabelecimento(l.descricao || l.categoria) === raiz);
     if (parecidos.length) {
       const ultimo = parecidos[parecidos.length - 1];
-      return { categoria: ultimo.categoria, grupo: ultimo.grupo,
-               alocacao: ultimo.alocacao || (ultimo.compartilhado_com_luciano ? 'casa' : 'pessoal'),
+      // Traduz pro título atual — o histórico pode ter nome antigo (ex: "Roupas").
+      const casa = ultimo.compartilhado_com_luciano;
+      const p = casa ? null : planLinhaPessoal(ultimo);
+      return { categoria: casa ? planLinhaCasa(ultimo.categoria) : (p.filho || p.pai),
+               grupo: casa ? GRUPO_CASA_DIVIDIDA : p.pai,
+               alocacao: ultimo.alocacao || (casa ? 'casa' : 'pessoal'),
                origem: `como das últimas ${parecidos.length}x` };
     }
   }
@@ -5081,7 +5064,8 @@ function renderConferencia() {
 
   const opcoes = (sel) => Object.entries(TAXONOMIA).map(([grupo, subs]) =>
     '<optgroup label="' + grupo + '">' +
-      '<option value="' + grupo + '|"' + (sel === grupo + '|' ? ' selected' : '') + '>' + grupo + ' (geral)</option>' +
+      (grupo === GRUPO_CASA_DIVIDIDA ? '' :
+        '<option value="' + grupo + '|"' + (sel === grupo + '|' ? ' selected' : '') + '>' + grupo + (subs.length ? ' (geral)' : '') + '</option>') +
       subs.map(s => '<option value="' + grupo + '|' + s + '"' +
         (sel === grupo + '|' + s ? ' selected' : '') + '>' + s + '</option>').join('') +
     '</optgroup>').join('');
@@ -5140,12 +5124,18 @@ function confSetAlocacao(i, valor) {
   renderConferencia();
 }
 
+// Item da casa dividida => alocação Casa; título pessoal tira de Casa (Empresa fica).
+function confSyncAlocacao(l) {
+  if (l.grupo === GRUPO_CASA_DIVIDIDA) l.alocacao = 'casa';
+  else if (l.alocacao === 'casa') l.alocacao = 'pessoal';
+}
 function confSetCategoria(i, valor) {
   const l = confLinhas.find(x => x.i === i);
   if (!l || !valor) return;
   const partes = valor.split('|');
   l.grupo = partes[0];
   l.categoria = partes[1] || partes[0]; // "(geral)" grava o proprio grupo
+  confSyncAlocacao(l);
   l.pendente = false;
   renderConferencia();
 }
@@ -5167,6 +5157,7 @@ function confAplicarLote(campo, valor) {
     if (campo === 'categoria') {
       const partes = valor.split('|');
       l.grupo = partes[0]; l.categoria = partes[1] || partes[0]; l.pendente = false;
+      confSyncAlocacao(l);
     }
   });
   renderConferencia();
@@ -5202,7 +5193,7 @@ async function salvarConferencia() {
     if (confMeta.iof > 0) {
       linhas.push({
         user_id: user.id, data: confMeta.vencimento, tipo: 'despesa',
-        categoria: 'Taxas', grupo: 'Outros', valor: confMeta.iof,
+        categoria: 'OUTROS', grupo: 'OUTROS', valor: confMeta.iof,
         descricao: 'Repasse de IOF (fatura do cartao)',
         alocacao: 'pessoal', compartilhado_com_luciano: false, pago_por: null,
         status: 'confirmado', origem: 'manual',
