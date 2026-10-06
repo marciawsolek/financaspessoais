@@ -5331,6 +5331,19 @@ async function salvarConferencia() {
 
 // Pendentes e reembolsos da empresa ficam fora dos totais — mas não podem ficar
 // invisíveis, senão viram trabalho esquecido e dinheiro esquecido.
+// O reembolso (PAYTRACK) cai de uma vez pra vários gastos — marca todos os
+// gastos de empresa em aberto como reembolsados hoje, e a faixa some.
+async function marcarEmpresaReembolsada() {
+  const abertos = (DATA_ORC.empresa || []).filter(l => l.tipo === 'despesa' && !l.reembolsado_em);
+  if (!abertos.length || !confirm(`Marcar ${abertos.length} gasto(s) de empresa (${brl(abertos.reduce((s, l) => s + Number(l.valor), 0))}) como já reembolsados?`)) return;
+  const { error } = await sb.from('lancamentos_domesticos')
+    .update({ reembolsado_em: new Date().toISOString().slice(0, 10) })
+    .in('id', abertos.map(l => l.id));
+  if (error) { alert('Erro: ' + error.message); return; }
+  orcamentoCarregado = false;
+  await loadOrcamentoData();
+}
+
 function renderPendentesEEmpresa() {
   const el = document.getElementById('orcForaDosTotais');
   if (!el || !DATA_ORC) return;
@@ -5354,6 +5367,7 @@ function renderPendentesEEmpresa() {
       ' <span class="conf-nota">— gasto reembolsável, fora do seu orçamento</span>' +
       ' <button class="row-action" onclick="abrirLancamentosLista(\'A receber da empresa\', \'' +
         emp.length + ' lançamento(s) · ' + brl(somaEmp) + '\', DATA_ORC.empresa.filter(l => l.tipo === \x27despesa\x27 && !l.reembolsado_em))">ver</button>' +
+      ' <button class="row-action" onclick="marcarEmpresaReembolsada()">já reembolsado</button>' +
     '</div>' : '');
 }
 checkSession();
