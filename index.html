@@ -4494,16 +4494,14 @@ function renderPlanilhaOrcamento() {
     return `<tr class="${classe || ''}"><td class="matriz-cat">${nome}</td>${celulas}<td class="tabular matriz-total-col">${itens.length ? planNum(total) : '—'}</td></tr>`;
   };
 
-  // ---- Receitas (+ PAYTRACK embaixo, fora do total, como na planilha) ----
+  // ---- Receitas ----
   const receitas = doAno.filter(l => l.tipo === 'receita');
-  const paytrack = (DATA_ORC.empresa || []).filter(l => l.tipo === 'receita' && String(l.data).startsWith(ano));
   document.getElementById('planRecHead').innerHTML = cab;
   document.getElementById('planRecBody').innerHTML =
     PLAN_RECEITAS.map(r => [r, receitas.filter(l => planLinhaReceita(l) === r)])
       .filter(([r, itens]) => r !== 'RESCISÃO' || itens.length)
       .map(([r, itens]) => linha(r, itens)).join('') +
-    linha('TOTAL', receitas, 'plan-total', 'Receitas') +
-    linha('PAYTRACK', paytrack, 'plan-rodape', 'PAYTRACK (reembolso Sun Pharma, fora do total)');
+    linha('TOTAL', receitas, 'plan-total', 'Receitas');
 
   // ---- Minhas despesas: um título por linha; PAIS com os subitens ----
   const pessoais = doAno.filter(l => l.tipo === 'despesa' && !l.compartilhado_com_luciano);
@@ -5412,7 +5410,7 @@ async function salvarConferencia() {
 
 // Pendentes e reembolsos da empresa ficam fora dos totais — mas não podem ficar
 // invisíveis, senão viram trabalho esquecido e dinheiro esquecido.
-// O reembolso (PAYTRACK) cai de uma vez pra vários gastos — marca todos os
+// O reembolso da empresa cai de uma vez pra vários gastos — marca todos os
 // gastos de empresa em aberto como reembolsados hoje, e a faixa some.
 async function marcarEmpresaReembolsada() {
   const abertos = (DATA_ORC.empresa || []).filter(l => l.tipo === 'despesa' && !l.reembolsado_em);
@@ -5429,7 +5427,7 @@ function renderPendentesEEmpresa() {
   const el = document.getElementById('orcForaDosTotais');
   if (!el || !DATA_ORC) return;
   const pend = DATA_ORC.pendentes || [];
-  // Só gastos: o PAYTRACK (reembolso recebido) também é "empresa", mas é receita.
+  // Só gastos: um reembolso recebido também seria "empresa", mas é receita.
   const emp = (DATA_ORC.empresa || []).filter(l => l.tipo === 'despesa' && !l.reembolsado_em);
   const somaPend = pend.reduce((s, l) => s + Number(l.valor), 0);
   const somaEmp = emp.reduce((s, l) => s + Number(l.valor), 0);
