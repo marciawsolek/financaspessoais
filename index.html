@@ -4450,8 +4450,15 @@ function planLinhaPessoal(l) {
 // Só valem pro que ELE pagou: o OUTROS dela continua OUTROS (decisão dela, 07/out:
 // o "Outros" dele, 350/mês, é manutenção da casa; o "Saúde" dele é da Bella).
 const PLAN_APELIDO_LUCIANO = { OUTROS: 'MANUTENÇÃO CASA', SAUDE: 'BELLA SAUDE' };
+// Ajustes pontuais em lançamentos dele (mês + linha de origem -> linha certa).
+const PLAN_AJUSTES_LUCIANO = [
+  { mes: '2026-08', de: 'ITENS PARA CASA', para: 'MANUTENÇÃO CASA' }, // 844 de ago = manutenção (07/out)
+];
 function planLinhaCasaDe(g) {
-  return (g.pago_por === 'luciano' && PLAN_APELIDO_LUCIANO[planNorm(g.categoria)]) || planLinhaCasa(g.categoria);
+  const linha = (g.pago_por === 'luciano' && PLAN_APELIDO_LUCIANO[planNorm(g.categoria)]) || planLinhaCasa(g.categoria);
+  if (g.pago_por !== 'luciano') return linha;
+  const ajuste = PLAN_AJUSTES_LUCIANO.find(a => a.mes === String(g.mes) && a.de === linha);
+  return ajuste ? ajuste.para : linha;
 }
 function planLinhaCasa(categoria) {
   return PLAN_IDX.casa[planNorm(categoria)] || String(categoria || 'Sem categoria').toUpperCase();
