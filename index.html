@@ -4448,8 +4448,8 @@ function planLinhaPessoal(l) {
 }
 // Categorias do sistema do Luciano que significam outra coisa na planilha dela.
 // Só valem pro que ELE pagou: o OUTROS dela continua OUTROS (decisão dela, 07/out:
-// o "Outros" dele, 350/mês, é manutenção da casa).
-const PLAN_APELIDO_LUCIANO = { OUTROS: 'MANUTENÇÃO CASA' };
+// o "Outros" dele, 350/mês, é manutenção da casa; o "Saúde" dele é da Bella).
+const PLAN_APELIDO_LUCIANO = { OUTROS: 'MANUTENÇÃO CASA', SAUDE: 'BELLA SAUDE' };
 function planLinhaCasaDe(g) {
   return (g.pago_por === 'luciano' && PLAN_APELIDO_LUCIANO[planNorm(g.categoria)]) || planLinhaCasa(g.categoria);
 }
