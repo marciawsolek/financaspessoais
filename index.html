@@ -962,6 +962,7 @@
         <label>Mês
           <select id="orcMesSelect" onchange="renderOrcamento()"></select>
         </label>
+        <button type="button" class="btn-primary" style="width:auto;padding:9px 16px;" onclick="irParaNovoLancamento()">+ Novo lançamento</button>
       </section>
 
       <!-- Tiles do mês -->
@@ -1115,7 +1116,8 @@
                 <input type="date" id="orcData" required>
               </label>
               <label>Categoria
-                <input type="text" id="orcCategoria" list="orcCategoriasList" placeholder="Ex: CASA, LUZ, PROVENTOS" required>
+                <input type="text" id="orcCategoria" list="orcCategoriasList" placeholder="Ex: CASA, LUZ, PROVENTOS" required
+                       onchange="sugerirDivisaoPelaCategoria()">
                 <datalist id="orcCategoriasList"></datalist>
               </label>
               <label>Grupo (opcional)
@@ -4812,6 +4814,25 @@ async function salvarLancamento(event) {
   } finally {
     btn.disabled = false; btn.textContent = orcEditando ? 'Salvar alteração' : 'Adicionar lançamento';
   }
+}
+
+// Botão do topo: leva ao formulário já limpo, com a data de hoje.
+function irParaNovoLancamento() {
+  cancelarEdicao();
+  document.getElementById('orcForm').scrollIntoView({ behavior: 'smooth', block: 'center' });
+  document.getElementById('orcCategoria').focus();
+}
+
+// Categoria das contas da casa (LUZ, MERCADO/ALIMENTAÇÃO...) => já marca
+// "Dividida com o Luciano"; título pessoal (CASA, SAÚDE...) => "Só minha".
+// Ela ainda pode trocar no botão antes de salvar.
+function sugerirDivisaoPelaCategoria() {
+  if (document.getElementById('orcTipo').value !== 'despesa') return;
+  const n = planNorm(document.getElementById('orcCategoria').value);
+  if (!n) return;
+  // Título pessoal ganha: LAZER e OUTROS existem nos dois blocos.
+  if (PLAN_TITULOS.some(t => planNorm(t) === n) || PLAN_IDX.pais[n] || n === planNorm(CATEGORIA_SO_LUCIANO)) setCompartilhado(false);
+  else if (PLAN_CASA.some(c => planNorm(c) === n)) setCompartilhado(true);
 }
 
 // Editar = o mesmo formulário, pré-preenchido; salvar faz update em vez de insert.
