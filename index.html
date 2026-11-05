@@ -4610,6 +4610,15 @@ function renderPlanilhaCasa(ano, meses, sel) {
     linhaCasa('TOTAL PAGO POR PESSOA', todas, 'plan-total') +
     rodape('TOTAL DO MÊS', m => doMes(m).length ? planNum(soma(doMes(m))) : '—') +
     rodape('VALOR POR PESSOA', m => doMes(m).length ? planNum(soma(doMes(m)) / 2) : '—') +
+    // Sem esta linha a conta fica com um degrau invisível: da cota (1.724) e do
+    // "só do Luciano" (83) não dá pra chegar no total a acertar (1.457) sem
+    // saber que ele já pagou 350 da cota dele.
+    rodape('FALTA DA COTA DELE', m => {
+      const l = doMes(m);
+      if (!l.length) return '—';
+      const falta = soma(l) / 2 - soma(l.filter(g => g.pago_por === 'luciano'));
+      return planNum(falta);
+    }) +
     rodape('SÓ DO LUCIANO (você pagou)', m => {
       const { itens, total } = soLuc(m);
       if (!itens.length) return '—';
